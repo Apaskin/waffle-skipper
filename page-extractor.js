@@ -86,37 +86,142 @@
   // Transcript Fetching (from MAIN world = has YouTube cookies)
   // ============================================================
 
-  // Fetch the transcript JSON directly from the MAIN world.
+  // Fetch the transcript from the MAIN world.
   // Using XMLHttpRequest because it sends cookies with the request,
   // which is required for YouTube's session-bound caption URLs.
+  //
+  // YouTube's timedtext API can return JSON (fmt=json3) or XML (default).
+  // We try JSON first, then fall back to parsing XML if needed.
   function fetchTranscriptJSON(captionUrl, callback) {
-    var url = captionUrl.indexOf('fmt=json3') !== -1 ? captionUrl : captionUrl + '&fmt=json3';
-    console.log('[Waffle Skipper Extractor] Fetching transcript from:', url.substring(0, 80) + '...');
+    // Try JSON format first
+    var jsonUrl = captionUrl;
+    // Remove any existing fmt parameter and add fmt=json3
+    if (jsonUrl.indexOf('&fmt=') !== -1) {
+      jsonUrl = jsonUrl.replace(/&fmt=[^&]*/, '&fmt=json3');
+    } else {
+      jsonUrl = jsonUrl + '&fmt=json3';
+    }
 
-    var xhr = new XMLHttpRequest();
-    xhr.open('GET', url, true);
-    xhr.onload = function () {
-      if (xhr.status === 200) {
+    console.log('[Waffle Skipper Extractor] Trying JSON format...');
+    fetchUrl(jsonUrl, function (responseText) {
+      if (responseText) {
+        // Try parsing as JSON
         try {
-          var data = JSON.parse(xhr.responseText);
+          var data = JSON.parse(responseText);
           if (data.events && data.events.length > 0) {
-            console.log('[Waffle Skipper Extractor] Got transcript:', data.events.length, 'events');
+            console.log('[Waffle Skipper Extractor] Got JSON transcript:', data.events.length, 'events');
             callback(data);
             return;
           }
         } catch (e) {
-          console.warn('[Waffle Skipper Extractor] Failed to parse transcript JSON:', e.message);
+          console.log('[Waffle Skipper Extractor] JSON parse failed, response starts with:', responseText.substring(0, 100));
         }
-      } else {
-        console.warn('[Waffle Skipper Extractor] Transcript fetch HTTP error:', xhr.status);
       }
-      callback(null);
+
+      // JSON didn't work — try XML format (YouTube's default)
+      console.log('[Waffle Skipper Extractor] Trying XML format...');
+      var xmlUrl = captionUrl;
+      // Remove fmt parameter to get default XML
+      if (xmlUrl.indexOf('&fmt=') !== -1) {
+        xmlUrl = xmlUrl.replace(/&fmt=[^&]*/, '');
+      }
+
+      fetchUrl(xmlUrl, function (xmlText) {
+        if (xmlText && xmlText.indexOf('<') === 0) {
+          var parsed = parseXmlTranscript(xmlText);
+          if (parsed && parsed.events.length > 0) {
+            console.log('[Waffle Skipper Extractor] Got XML transcript:', parsed.events.length, 'events');
+            callback(parsed);
+            return;
+          }
+        }
+
+        // Last resort: try srv3 format
+        console.log('[Waffle Skipper Extractor] Trying srv3 format...');
+        var srv3Url = captionUrl;
+        if (srv3Url.indexOf('&fmt=') !== -1) {
+          srv3Url = srv3Url.replace(/&fmt=[^&]*/, '&fmt=srv3');
+        } else {
+          srv3Url = srv3Url + '&fmt=srv3';
+        }
+
+        fetchUrl(srv3Url, function (srv3Text) {
+          if (srv3Text && srv3Text.indexOf('<') === 0) {
+            var srv3Parsed = parseXmlTranscript(srv3Text);
+            if (srv3Parsed && srv3Parsed.events.length > 0) {
+              console.log('[Waffle Skipper Extractor] Got srv3 transcript:', srv3Parsed.events.length, 'events');
+              callback(srv3Parsed);
+              return;
+            }
+          }
+          console.warn('[Waffle Skipper Extractor] All transcript formats failed');
+          callback(null);
+        });
+      });
+    });
+  }
+
+  // Simple XHR fetch helper
+  function fetchUrl(url, callback) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', url, true);
+    xhr.onload = function () {
+      if (xhr.status === 200 && xhr.responseText && xhr.responseText.length > 10) {
+        callback(xhr.responseText);
+      } else {
+        console.log('[Waffle Skipper Extractor] Fetch status:', xhr.status, 'length:', (xhr.responseText || '').length);
+        callback(null);
+      }
     };
     xhr.onerror = function () {
-      console.warn('[Waffle Skipper Extractor] Transcript fetch network error');
+      console.warn('[Waffle Skipper Extractor] XHR network error');
       callback(null);
     };
     xhr.send();
+  }
+
+  // Parse YouTube's XML transcript format into our standard format
+  // YouTube XML format: <transcript><text start="0" dur="5.2">caption text</text>...</transcript>
+  function parseXmlTranscript(xmlText) {
+    try {
+      var parser = new DOMParser();
+      var doc = parser.parseFromString(xmlText, 'text/xml');
+      var textNodes = doc.querySelectorAll('text');
+
+      if (textNodes.length === 0) {
+        // Try body > p format (srv3)
+        textNodes = doc.querySelectorAll('body p, p');
+      }
+
+      if (textNodes.length === 0) return null;
+
+      var events = [];
+      for (var i = 0; i < textNodes.length; i++) {
+        var node = textNodes[i];
+        var start = parseFloat(node.getAttribute('start') || node.getAttribute('t') || '0');
+        var dur = parseFloat(node.getAttribute('dur') || node.getAttribute('d') || '0');
+        var text = node.textContent || '';
+
+        // Convert to JSON3-like format that our chunker expects
+        events.push({
+          tStartMs: Math.round(start * 1000),
+          dDurationMs: Math.round(dur * 1000),
+          segs: [{ utf8: decodeHtmlEntities(text) }]
+        });
+      }
+
+      return { events: events };
+    } catch (e) {
+      console.warn('[Waffle Skipper Extractor] XML parse error:', e.message);
+      return null;
+    }
+  }
+
+  // Decode HTML entities in caption text (e.g., &amp; &#39;)
+  function decodeHtmlEntities(text) {
+    var el = document.createElement('textarea');
+    el.innerHTML = text;
+    return el.value;
   }
 
   // ============================================================
