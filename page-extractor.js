@@ -1,12 +1,11 @@
 // page-extractor.js — Runs in the MAIN world at document_start
 //
-// APPROACH: Intercept YouTube's own caption/timedtext network requests.
-// YouTube fetches captions for its player automatically — we just capture
-// that response instead of making our own API calls (which all fail due
-// to YouTube's auth requirements).
+// Intercepts YouTube's own XHR/fetch caption requests to capture transcript data.
+// YouTube's player fetches captions via /api/timedtext — we patch XMLHttpRequest
+// and fetch BEFORE YouTube's scripts load to capture those responses.
 //
-// This script patches XMLHttpRequest BEFORE YouTube's scripts load
-// (run_at: document_start), so we catch every timedtext request.
+// This is the only reliable approach because YouTube's caption URLs require
+// browser-level session context that can't be replicated from extension code.
 
 (function () {
   'use strict';
@@ -18,127 +17,92 @@
   // XMLHttpRequest Interception
   // ============================================================
 
-  // Patch XMLHttpRequest to intercept YouTube's timedtext requests.
-  // YouTube's player uses XHR to fetch captions. We wrap the original
-  // open/send to detect timedtext URLs and capture the response.
+  var OrigXHR = window.XMLHttpRequest;
+  var origOpen = OrigXHR.prototype.open;
+  var origSend = OrigXHR.prototype.send;
 
-  var OriginalXHR = window.XMLHttpRequest;
-  var originalOpen = OriginalXHR.prototype.open;
-  var originalSend = OriginalXHR.prototype.send;
-
-  OriginalXHR.prototype.open = function (method, url) {
-    // Check if this is a timedtext/caption request
-    if (typeof url === 'string' && url.indexOf('/api/timedtext') !== -1 && url.indexOf('fmt=json3') !== -1) {
+  OrigXHR.prototype.open = function (method, url) {
+    // Flag timedtext requests so we can capture the response
+    if (typeof url === 'string' && url.indexOf('/api/timedtext') !== -1) {
       this._waffleTimedtextUrl = url;
     }
-    return originalOpen.apply(this, arguments);
+    return origOpen.apply(this, arguments);
   };
 
-  OriginalXHR.prototype.send = function () {
-    if (this._waffleTimedtextUrl) {
-      var url = this._waffleTimedtextUrl;
-      var xhr = this;
+  OrigXHR.prototype.send = function () {
+    var xhr = this;
+    var url = this._waffleTimedtextUrl;
 
-      var originalOnReadyStateChange = xhr.onreadystatechange;
-      xhr.onreadystatechange = function () {
-        if (xhr.readyState === 4 && xhr.status === 200 && xhr.responseText) {
-          try {
-            var data = JSON.parse(xhr.responseText);
-            if (data.events && data.events.length > 0) {
-              // Extract video ID from the URL
-              var videoId = extractVideoIdFromUrl(url);
-              if (videoId) {
-                console.log('[Waffle Skipper Extractor] Captured timedtext response for', videoId, ':', data.events.length, 'events');
-                capturedTranscripts[videoId] = data;
-                // Post immediately in case content script is already waiting
-                window.postMessage({
-                  source: 'waffle-skipper-extractor',
-                  transcript: data,
-                  tracks: [],
-                  videoId: videoId,
-                  method: 'xhr-intercept'
-                }, '*');
-              }
-            }
-          } catch (e) {
-            // Not JSON or not a caption response — ignore
-          }
-        }
-        if (originalOnReadyStateChange) {
-          originalOnReadyStateChange.apply(this, arguments);
-        }
-      };
-
-      // Also handle addEventListener('load', ...) pattern
+    if (url) {
       xhr.addEventListener('load', function () {
-        if (xhr.status === 200 && xhr.responseText) {
-          try {
-            var data = JSON.parse(xhr.responseText);
-            if (data.events && data.events.length > 0) {
-              var videoId = extractVideoIdFromUrl(url);
-              if (videoId && !capturedTranscripts[videoId]) {
-                console.log('[Waffle Skipper Extractor] Captured timedtext (load event) for', videoId, ':', data.events.length, 'events');
-                capturedTranscripts[videoId] = data;
-                window.postMessage({
-                  source: 'waffle-skipper-extractor',
-                  transcript: data,
-                  tracks: [],
-                  videoId: videoId,
-                  method: 'xhr-intercept-load'
-                }, '*');
-              }
-            }
-          } catch (e) {}
+        if (xhr.status === 200 && xhr.responseText && xhr.responseText.length > 100) {
+          handleTimedtextResponse(url, xhr.responseText);
         }
       });
     }
 
-    return originalSend.apply(this, arguments);
+    return origSend.apply(this, arguments);
   };
 
   // ============================================================
   // Fetch Interception
   // ============================================================
 
-  // YouTube might also use fetch() for captions in some cases.
-  // Patch window.fetch to intercept timedtext requests.
-
-  var originalFetch = window.fetch;
+  var origFetch = window.fetch;
   window.fetch = function () {
-    var url = arguments[0];
-    if (typeof url === 'string' && url.indexOf('/api/timedtext') !== -1 && url.indexOf('fmt=json3') !== -1) {
+    var url = (arguments[0] && typeof arguments[0] === 'string') ? arguments[0]
+      : (arguments[0] && arguments[0].url) ? arguments[0].url : '';
+
+    if (typeof url === 'string' && url.indexOf('/api/timedtext') !== -1) {
       var captureUrl = url;
-      return originalFetch.apply(this, arguments).then(function (response) {
-        // Clone the response so we can read it without consuming it
+      return origFetch.apply(this, arguments).then(function (response) {
         var clone = response.clone();
         clone.text().then(function (text) {
-          try {
-            var data = JSON.parse(text);
-            if (data.events && data.events.length > 0) {
-              var videoId = extractVideoIdFromUrl(captureUrl);
-              if (videoId && !capturedTranscripts[videoId]) {
-                console.log('[Waffle Skipper Extractor] Captured timedtext (fetch) for', videoId, ':', data.events.length, 'events');
-                capturedTranscripts[videoId] = data;
-                window.postMessage({
-                  source: 'waffle-skipper-extractor',
-                  transcript: data,
-                  tracks: [],
-                  videoId: videoId,
-                  method: 'fetch-intercept'
-                }, '*');
-              }
-            }
-          } catch (e) {}
+          if (response.ok && text.length > 100) {
+            handleTimedtextResponse(captureUrl, text);
+          }
         });
         return response;
       });
     }
-    return originalFetch.apply(this, arguments);
+    return origFetch.apply(this, arguments);
   };
 
   // ============================================================
-  // Utility
+  // Response Handling
   // ============================================================
+
+  function handleTimedtextResponse(url, responseText) {
+    var videoId = extractVideoIdFromUrl(url);
+    if (!videoId) return;
+
+    // Already captured this video — skip
+    if (capturedTranscripts[videoId]) return;
+
+    // Try JSON parse (json3 format)
+    try {
+      var data = JSON.parse(responseText);
+      if (data.events && data.events.length > 0) {
+        console.log('[Waffle Skipper Extractor] Captured transcript for', videoId + ':', data.events.length, 'events');
+        capturedTranscripts[videoId] = data;
+        postTranscript(videoId, data, 'json');
+        return;
+      }
+    } catch (e) {}
+
+    // Try XML parse (default/srv3 format)
+    try {
+      if (responseText.trim().charAt(0) === '<') {
+        var parsed = parseXmlTranscript(responseText);
+        if (parsed && parsed.events.length > 0) {
+          console.log('[Waffle Skipper Extractor] Captured XML transcript for', videoId + ':', parsed.events.length, 'events');
+          capturedTranscripts[videoId] = parsed;
+          postTranscript(videoId, parsed, 'xml');
+          return;
+        }
+      }
+    } catch (e) {}
+  }
 
   function extractVideoIdFromUrl(url) {
     try {
@@ -149,40 +113,59 @@
     }
   }
 
+  function postTranscript(videoId, data, method) {
+    window.postMessage({
+      source: 'waffle-skipper-extractor',
+      transcript: data,
+      tracks: [],
+      videoId: videoId,
+      method: method
+    }, '*');
+  }
+
+  function parseXmlTranscript(xmlText) {
+    try {
+      var parser = new DOMParser();
+      var doc = parser.parseFromString(xmlText, 'text/xml');
+      var textNodes = doc.querySelectorAll('text');
+      if (textNodes.length === 0) textNodes = doc.querySelectorAll('p');
+      if (textNodes.length === 0) return null;
+
+      var events = [];
+      for (var i = 0; i < textNodes.length; i++) {
+        var node = textNodes[i];
+        var start = parseFloat(node.getAttribute('start') || node.getAttribute('t') || '0');
+        var dur = parseFloat(node.getAttribute('dur') || node.getAttribute('d') || '0');
+        events.push({
+          tStartMs: Math.round(start * 1000),
+          dDurationMs: Math.round(dur * 1000),
+          segs: [{ utf8: node.textContent || '' }]
+        });
+      }
+      return { events: events };
+    } catch (e) { return null; }
+  }
+
   // ============================================================
   // Content Script Communication
   // ============================================================
 
-  // Listen for requests from the content script asking for transcript data
   window.addEventListener('message', function (event) {
     if (event.data && event.data.source === 'waffle-skipper-request') {
-      var requestedVideoId = event.data.videoId;
-      console.log('[Waffle Skipper Extractor] Content script requested data for:', requestedVideoId);
-
-      if (requestedVideoId && capturedTranscripts[requestedVideoId]) {
-        // We already have the transcript — send it immediately
-        console.log('[Waffle Skipper Extractor] Sending cached transcript for', requestedVideoId);
-        window.postMessage({
-          source: 'waffle-skipper-extractor',
-          transcript: capturedTranscripts[requestedVideoId],
-          tracks: [],
-          videoId: requestedVideoId,
-          method: 'cache'
-        }, '*');
+      var vid = event.data.videoId;
+      if (vid && capturedTranscripts[vid]) {
+        postTranscript(vid, capturedTranscripts[vid], 'cache');
       } else {
-        // We don't have it yet — YouTube might not have loaded captions yet.
-        // Send empty response; content script will retry.
-        console.log('[Waffle Skipper Extractor] No transcript cached yet for', requestedVideoId);
         window.postMessage({
           source: 'waffle-skipper-extractor',
           transcript: null,
           tracks: [],
-          videoId: requestedVideoId,
-          error: 'Transcript not captured yet — YouTube may not have loaded captions'
+          videoId: vid,
+          error: 'Not captured yet'
         }, '*');
       }
     }
   });
 
-  console.log('[Waffle Skipper Extractor] XHR/fetch interception active, waiting for YouTube to load captions...');
+  console.log('[Waffle Skipper Extractor] Listening for YouTube caption requests...');
 })();

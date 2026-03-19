@@ -91,6 +91,13 @@
       if (hasTranscript && event.data.videoId) {
         latestTranscriptData = event.data.transcript;
         latestTranscriptVideoId = event.data.videoId;
+
+        // If transcript arrives after analysis gave up (YouTube loads captions late),
+        // and this is still the current video, auto-trigger analysis
+        if (event.data.videoId === currentVideoId && !isAnalyzing && segments.length === 0 && analysisError) {
+          console.log('[Waffle Skipper] Late transcript arrived! Re-triggering analysis...');
+          analyzeVideo(currentVideoId);
+        }
       }
 
       // Resolve pending request if there is one
