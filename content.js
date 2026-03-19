@@ -244,7 +244,7 @@
       }
 
       if (result.error) {
-        console.warn(`[Waffle Skipper] Analysis error: ${result.error}`);
+        console.warn(`[Waffle Skipper] Analysis error: ${result.error}`, result.detail || '');
         isAnalyzing = false;
         analysisError = result.error;
         showError(result.error);

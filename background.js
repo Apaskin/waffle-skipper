@@ -186,7 +186,7 @@ async function classifyChunks(chunks, apiKey) {
 
   const requestBody = {
     model: 'claude-haiku-4-5-20251001',
-    max_tokens: 1024,
+    max_tokens: 4096,
     system: `You classify YouTube video transcript segments. For each segment, respond with SUBSTANCE or WAFFLE.
 
 WAFFLE means: sponsor reads, "like and subscribe" pleas, off-topic tangents, filler anecdotes that don't support the main point, repetitive recaps, excessive greetings/outros, self-promotion, patreon plugs, padding, rambling.
@@ -351,8 +351,9 @@ async function handleAnalyzeVideo(videoId, captionUrl, transcriptData) {
   try {
     segments = await classifyChunks(chunks, claudeApiKey);
   } catch (err) {
-    console.error('[Waffle Skipper] Classification failed:', err);
-    return { error: 'CLASSIFICATION_FAILED' };
+    console.error('[Waffle Skipper] Classification failed:', err.message || err);
+    // Surface the actual error so the user can see what went wrong
+    return { error: 'CLASSIFICATION_FAILED', detail: err.message || String(err) };
   }
 
   // Cache the results
