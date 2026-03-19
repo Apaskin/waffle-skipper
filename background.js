@@ -48,23 +48,82 @@ async function fetchTranscript(videoId, captionUrl) {
     }
   }
 
-  // Fallback: try the direct timedtext API (works for some videos)
+  // Fallback: fetch the YouTube watch page and extract caption tracks from HTML.
+  // The service worker can fetch YouTube pages (has host_permissions), though
+  // it won't have user cookies. YouTube still embeds ytInitialPlayerResponse
+  // in the page HTML for non-authenticated requests.
   try {
-    const url = `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=json3`;
-    const response = await fetch(url);
-    if (response.ok) {
-      const data = await response.json();
-      if (data.events && data.events.length > 0) {
-        console.log(`[Waffle Skipper] Got transcript via direct API: ${data.events.length} events`);
-        return data;
+    console.log('[Waffle Skipper] Trying fallback: fetching watch page HTML');
+    const pageResponse = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
+      headers: {
+        // Pretend to be a regular browser to avoid bot detection
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9'
+      }
+    });
+    const pageHtml = await pageResponse.text();
+    console.log(`[Waffle Skipper] Got page HTML: ${pageHtml.length} chars`);
+
+    // Look for "captionTracks" in the page HTML
+    const captionIdx = pageHtml.indexOf('"captionTracks":');
+    if (captionIdx === -1) {
+      console.warn('[Waffle Skipper] No captionTracks found in page HTML');
+      throw new Error('NO_CAPTIONS');
+    }
+
+    // Find the JSON array of caption tracks
+    const bracketStart = pageHtml.indexOf('[', captionIdx);
+    if (bracketStart === -1 || bracketStart - captionIdx > 20) {
+      throw new Error('NO_CAPTIONS');
+    }
+
+    // Track bracket depth to find the matching closing bracket
+    let depth = 0;
+    let bracketEnd = bracketStart;
+    for (let i = bracketStart; i < pageHtml.length && i < bracketStart + 10000; i++) {
+      if (pageHtml[i] === '[') depth++;
+      if (pageHtml[i] === ']') {
+        depth--;
+        if (depth === 0) { bracketEnd = i + 1; break; }
       }
     }
-  } catch (err) {
-    console.warn('[Waffle Skipper] Direct timedtext API failed:', err.message);
-  }
 
-  console.error('[Waffle Skipper] All transcript fetch methods failed');
-  throw new Error('NO_CAPTIONS');
+    const tracksJson = pageHtml.substring(bracketStart, bracketEnd);
+    const tracks = JSON.parse(tracksJson);
+    console.log(`[Waffle Skipper] Found ${tracks.length} caption tracks in page HTML`);
+
+    if (tracks.length === 0) {
+      throw new Error('NO_CAPTIONS');
+    }
+
+    // Find the best track (prefer English)
+    const track = tracks.find(t => t.languageCode === 'en')
+      || tracks.find(t => t.languageCode && t.languageCode.startsWith('en'))
+      || tracks[0];
+
+    const trackUrl = track.baseUrl + (track.baseUrl.includes('fmt=json3') ? '' : '&fmt=json3');
+    console.log(`[Waffle Skipper] Fetching caption track: ${track.languageCode}`);
+
+    const captionResponse = await fetch(trackUrl);
+    if (!captionResponse.ok) {
+      throw new Error('Caption track fetch failed: ' + captionResponse.status);
+    }
+    const captionData = await captionResponse.json();
+
+    if (captionData.events && captionData.events.length > 0) {
+      console.log(`[Waffle Skipper] Got transcript via page HTML fallback: ${captionData.events.length} events`);
+      return captionData;
+    }
+
+    throw new Error('NO_CAPTIONS');
+  } catch (err) {
+    if (err.message === 'NO_CAPTIONS') {
+      console.error('[Waffle Skipper] All transcript fetch methods failed — no captions available');
+      throw err;
+    }
+    console.error('[Waffle Skipper] Fallback transcript fetch failed:', err.message);
+    throw new Error('NO_CAPTIONS');
+  }
 }
 
 // ============================================================
