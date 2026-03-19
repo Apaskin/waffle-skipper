@@ -17,13 +17,38 @@ chrome.runtime.onInstalled.addListener(() => {
 // Transcript Fetching
 // ============================================================
 
-// Fetch transcript from YouTube's timedtext API
-// Primary: direct timedtext endpoint
-// Fallback: scrape ytInitialPlayerResponse from page HTML
-async function fetchTranscript(videoId) {
+// Fetch transcript from YouTube.
+// The content script extracts the caption track URL from the loaded page
+// (it has access to ytInitialPlayerResponse in the page context) and passes
+// it here. This is far more reliable than trying to fetch from the service
+// worker, which gets a different (often bot-blocked) response from YouTube.
+//
+// Approach order:
+// 1. Use captionUrl provided by content script (best — comes from the real page)
+// 2. Try direct timedtext API as fallback (sometimes works for popular videos)
+async function fetchTranscript(videoId, captionUrl) {
   console.log(`[Waffle Skipper] Fetching transcript for ${videoId}`);
 
-  // Primary approach: direct timedtext API
+  // Primary: use the caption URL extracted by the content script
+  if (captionUrl) {
+    try {
+      // Append fmt=json3 if not already present
+      const url = captionUrl.includes('fmt=json3') ? captionUrl : captionUrl + '&fmt=json3';
+      console.log('[Waffle Skipper] Fetching caption URL from page context');
+      const response = await fetch(url);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.events && data.events.length > 0) {
+          console.log(`[Waffle Skipper] Got transcript via page caption URL: ${data.events.length} events`);
+          return data;
+        }
+      }
+    } catch (err) {
+      console.warn('[Waffle Skipper] Caption URL fetch failed:', err.message);
+    }
+  }
+
+  // Fallback: try the direct timedtext API (works for some videos)
   try {
     const url = `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=json3`;
     const response = await fetch(url);
@@ -38,48 +63,8 @@ async function fetchTranscript(videoId) {
     console.warn('[Waffle Skipper] Direct timedtext API failed:', err.message);
   }
 
-  // Fallback: scrape the watch page for caption track URL
-  try {
-    console.log('[Waffle Skipper] Trying fallback: scraping page for caption tracks');
-    const pageResponse = await fetch(`https://www.youtube.com/watch?v=${videoId}`);
-    const pageHtml = await pageResponse.text();
-
-    // Extract ytInitialPlayerResponse JSON from the page
-    const match = pageHtml.match(/ytInitialPlayerResponse\s*=\s*({.+?});/);
-    if (!match) {
-      throw new Error('Could not find ytInitialPlayerResponse in page HTML');
-    }
-
-    const playerResponse = JSON.parse(match[1]);
-    const captionTracks = playerResponse?.captions
-      ?.playerCaptionsTracklistRenderer
-      ?.captionTracks;
-
-    if (!captionTracks || captionTracks.length === 0) {
-      throw new Error('No caption tracks found');
-    }
-
-    // Prefer English, fall back to first available track
-    const englishTrack = captionTracks.find(t => t.languageCode === 'en')
-      || captionTracks.find(t => t.languageCode?.startsWith('en'))
-      || captionTracks[0];
-
-    const captionUrl = englishTrack.baseUrl + '&fmt=json3';
-    console.log(`[Waffle Skipper] Found caption track: ${englishTrack.languageCode}`);
-
-    const captionResponse = await fetch(captionUrl);
-    const captionData = await captionResponse.json();
-
-    if (captionData.events && captionData.events.length > 0) {
-      console.log(`[Waffle Skipper] Got transcript via fallback: ${captionData.events.length} events`);
-      return captionData;
-    }
-
-    throw new Error('Caption data had no events');
-  } catch (err) {
-    console.error('[Waffle Skipper] Fallback transcript fetch failed:', err.message);
-    throw new Error('NO_CAPTIONS');
-  }
+  console.error('[Waffle Skipper] All transcript fetch methods failed');
+  throw new Error('NO_CAPTIONS');
 }
 
 // ============================================================
@@ -244,7 +229,7 @@ async function cacheAnalysis(videoId, segments) {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'ANALYZE_VIDEO') {
     // Handle async — return true to keep the message channel open
-    handleAnalyzeVideo(message.videoId)
+    handleAnalyzeVideo(message.videoId, message.captionUrl)
       .then(result => sendResponse(result))
       .catch(err => sendResponse({ error: err.message }));
     return true; // Required for async sendResponse
@@ -261,7 +246,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 // Full analysis pipeline: cache check → transcript → chunk → classify → cache
-async function handleAnalyzeVideo(videoId) {
+// captionUrl is optionally provided by the content script (extracted from page context)
+async function handleAnalyzeVideo(videoId, captionUrl) {
   if (!videoId) {
     return { error: 'NO_VIDEO_ID' };
   }
@@ -278,10 +264,10 @@ async function handleAnalyzeVideo(videoId) {
     return { error: 'NO_API_KEY' };
   }
 
-  // Fetch transcript
+  // Fetch transcript — pass the caption URL from the content script if available
   let timedTextData;
   try {
-    timedTextData = await fetchTranscript(videoId);
+    timedTextData = await fetchTranscript(videoId, captionUrl);
   } catch (err) {
     return { error: err.message };
   }

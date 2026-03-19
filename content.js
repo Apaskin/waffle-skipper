@@ -1,10 +1,11 @@
-// content.js — Waffle Skipper content script
-// Injected on YouTube watch pages. Handles:
+// content.js — Waffle Skipper content script (ISOLATED world)
+// Injected on YouTube pages. Handles:
 // - Video ID detection and YouTube SPA navigation
+// - Receiving caption track URLs from page-extractor.js (MAIN world)
 // - Timeline overlay rendering (green=substance, orange=waffle)
 // - Skip logic (AUTO/MANUAL/OFF modes)
 // - Floating scoreboard with live counters
-// - Communication with background service worker
+// - Communication with background service worker for Claude API calls
 
 (function () {
   'use strict';
@@ -33,6 +34,9 @@
 
   // Reference to video timeupdate listener (for cleanup)
   let timeupdateHandler = null;
+
+  // Pending caption resolve — set when we're waiting for page-extractor response
+  let captionResolve = null;
 
   console.log('[Waffle Skipper] Content script loaded');
 
@@ -63,6 +67,41 @@
     }
     return false;
   });
+
+  // ============================================================
+  // Caption Track Reception (from page-extractor.js via postMessage)
+  // ============================================================
+
+  // Listen for caption track data posted by page-extractor.js (MAIN world).
+  // The extractor runs in the page context and can read ytInitialPlayerResponse
+  // and the movie_player API — things we can't access from the ISOLATED world.
+  window.addEventListener('message', (event) => {
+    if (event.data && event.data.source === 'waffle-skipper-extractor') {
+      console.log('[Waffle Skipper] Received caption data from page extractor:', event.data);
+      if (captionResolve) {
+        captionResolve(event.data);
+        captionResolve = null;
+      }
+    }
+  });
+
+  // Request caption tracks from the page extractor and wait for response
+  function requestCaptionTracks() {
+    return new Promise((resolve) => {
+      captionResolve = resolve;
+
+      // Ask the page extractor to send us caption data
+      window.postMessage({ source: 'waffle-skipper-request' }, '*');
+
+      // Timeout after 5 seconds
+      setTimeout(() => {
+        if (captionResolve === resolve) {
+          captionResolve = null;
+          resolve({ tracks: [], error: 'Timeout waiting for page extractor' });
+        }
+      }, 5000);
+    });
+  }
 
   // Start watching for video changes
   initNavigation();
@@ -105,8 +144,13 @@
     wafflesZapped = 0;
     timeSavedSec = 0;
 
-    // Start analysis
-    analyzeVideo(videoId);
+    // Start analysis — delay to let YouTube's player initialize after SPA navigation
+    // The page-extractor also has a 1s delay on yt-navigate-finish
+    setTimeout(() => {
+      if (videoId === currentVideoId) {
+        analyzeVideo(videoId);
+      }
+    }, 2000);
   }
 
   function getVideoId() {
@@ -127,10 +171,33 @@
     injectLoadingState();
 
     try {
-      // Send to background service worker for transcript fetch + Claude classification
+      // Request caption tracks from the page extractor (MAIN world script)
+      let captionData = await requestCaptionTracks();
+
+      // If no tracks found, retry once after a delay (player might still be loading)
+      if (!captionData.tracks || captionData.tracks.length === 0) {
+        console.log('[Waffle Skipper] No tracks on first try, retrying in 2s...');
+        await new Promise(r => setTimeout(r, 2000));
+        captionData = await requestCaptionTracks();
+      }
+
+      console.log('[Waffle Skipper] Caption tracks:', captionData);
+
+      // Find the best caption track URL
+      let captionUrl = null;
+      if (captionData.tracks && captionData.tracks.length > 0) {
+        const englishTrack = captionData.tracks.find(t => t.lang === 'en')
+          || captionData.tracks.find(t => t.lang && t.lang.startsWith('en'))
+          || captionData.tracks[0];
+        captionUrl = englishTrack.baseUrl;
+        console.log(`[Waffle Skipper] Using caption track: ${englishTrack.lang} (${englishTrack.name})`);
+      }
+
+      // Send to background service worker for transcript fetching + Claude classification
       const result = await chrome.runtime.sendMessage({
         type: 'ANALYZE_VIDEO',
-        videoId: videoId
+        videoId: videoId,
+        captionUrl: captionUrl
       });
 
       // Check if the user navigated away while we were analyzing
@@ -169,7 +236,7 @@
   // ============================================================
 
   function renderTimeline() {
-    // Remove any existing timeline
+    // Remove any existing timeline or loading state
     removeElement('#waffle-timeline');
     removeElement('#waffle-loading');
 
@@ -253,7 +320,7 @@
   // ============================================================
 
   function showTooltip(e) {
-    hideTooltip(); // Remove any existing tooltip
+    hideTooltip();
 
     const segEl = e.currentTarget;
     const type = segEl.dataset.type.toUpperCase();
@@ -295,9 +362,7 @@
     scoreboardEl = document.createElement('div');
     scoreboardEl.id = 'waffle-scoreboard';
 
-    // Count waffle stats from segments
     const waffleSegments = segments.filter(s => s.type === 'waffle');
-    const totalWaffleTime = waffleSegments.reduce((sum, s) => sum + (s.end - s.start), 0);
 
     scoreboardEl.innerHTML = `
       <div class="waffle-scoreboard-mascot">🧇</div>
@@ -317,7 +382,6 @@
       </div>
     `;
 
-    // Inject inside the player (bottom-right)
     const player = document.querySelector('#movie_player');
     if (player) {
       player.appendChild(scoreboardEl);
@@ -329,7 +393,6 @@
     const savedEl = document.getElementById('waffle-time-saved');
     if (zappedEl) {
       zappedEl.textContent = wafflesZapped;
-      // Pulse animation on update
       zappedEl.classList.remove('waffle-pulse');
       void zappedEl.offsetWidth; // Force reflow to restart animation
       zappedEl.classList.add('waffle-pulse');
@@ -352,7 +415,6 @@
     }
 
     if (currentMode === 'OFF') {
-      // Hide everything
       if (timelineEl) timelineEl.style.display = 'none';
       if (scoreboardEl) scoreboardEl.style.display = 'none';
       return;
@@ -376,20 +438,17 @@
 
     const currentTime = video.currentTime;
 
-    // Check if we're inside a waffle segment
     for (const segment of segments) {
       if (segment.type === 'waffle' &&
           currentTime >= segment.start &&
-          currentTime < segment.end - 0.5) { // 0.5s buffer to avoid skipping at segment boundary
+          currentTime < segment.end - 0.5) {
         console.log(`[Waffle Skipper] AUTO SKIP: ${formatTime(segment.start)} → ${formatTime(segment.end)}`);
         video.currentTime = segment.end;
 
-        // Update stats
         wafflesZapped++;
         timeSavedSec += (segment.end - currentTime);
         updateScoreboard();
 
-        // Cooldown to prevent double-skip
         skipCooldown = true;
         setTimeout(() => { skipCooldown = false; }, 300);
         break;
@@ -408,7 +467,7 @@
 
     const loadingEl = document.createElement('div');
     loadingEl.id = 'waffle-loading';
-    loadingEl.innerHTML = '<span class="waffle-loading-text">ANALYZING...</span>';
+    loadingEl.innerHTML = '<span class="waffle-loading-text">🧇 ANALYZING...</span>';
 
     injectTimeline(loadingEl);
   }
@@ -431,7 +490,6 @@
     const msg = messages[errorCode] || messages['UNKNOWN_ERROR'];
     errorEl.innerHTML = `<span class="waffle-error-text">${msg}</span>`;
 
-    // Click to retry on retryable errors
     if (errorCode === 'CLASSIFICATION_FAILED' || errorCode === 'UNKNOWN_ERROR') {
       errorEl.style.cursor = 'pointer';
       errorEl.addEventListener('click', () => {
@@ -479,21 +537,18 @@
   // ============================================================
 
   function cleanup() {
-    // Remove injected DOM elements
     removeElement('#waffle-timeline');
     removeElement('#waffle-scoreboard');
     removeElement('#waffle-loading');
     removeElement('#waffle-error');
     hideTooltip();
 
-    // Remove timeupdate listener
     if (timeupdateHandler) {
       const video = document.querySelector('video');
       if (video) video.removeEventListener('timeupdate', timeupdateHandler);
       timeupdateHandler = null;
     }
 
-    // Reset state
     segments = [];
     isAnalyzing = false;
     analysisError = null;
