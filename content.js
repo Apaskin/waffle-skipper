@@ -35,8 +35,13 @@
   // Reference to video timeupdate listener (for cleanup)
   let timeupdateHandler = null;
 
-  // Pending caption resolve — set when we're waiting for page-extractor response
+  // Pending resolve — set when we're waiting for page-extractor response
   let captionResolve = null;
+
+  // Store the latest transcript data received from page-extractor
+  // (may arrive before content script asks for it via XHR intercept)
+  let latestTranscriptData = null;
+  let latestTranscriptVideoId = null;
 
   console.log('[Waffle Skipper] Content script loaded');
 
@@ -73,13 +78,22 @@
   // ============================================================
 
   // Listen for data posted by page-extractor.js (MAIN world).
-  // The extractor runs in the page context with YouTube's cookies,
-  // so it can both find caption tracks AND fetch the transcript JSON directly.
+  // The extractor intercepts YouTube's own XHR/fetch requests to the
+  // timedtext API and captures the transcript response.
   window.addEventListener('message', (event) => {
     if (event.data && event.data.source === 'waffle-skipper-extractor') {
-      console.log('[Waffle Skipper] Received data from page extractor:',
-        event.data.tracks?.length || 0, 'tracks,',
-        event.data.transcript ? event.data.transcript.events?.length + ' events' : 'no transcript');
+      const hasTranscript = event.data.transcript && event.data.transcript.events;
+      console.log('[Waffle Skipper] Received from extractor:',
+        hasTranscript ? event.data.transcript.events.length + ' events' : 'no transcript',
+        event.data.method || '', event.data.videoId || '');
+
+      // Store latest transcript data (may arrive unprompted via XHR intercept)
+      if (hasTranscript && event.data.videoId) {
+        latestTranscriptData = event.data.transcript;
+        latestTranscriptVideoId = event.data.videoId;
+      }
+
+      // Resolve pending request if there is one
       if (captionResolve) {
         captionResolve(event.data);
         captionResolve = null;
@@ -87,21 +101,28 @@
     }
   });
 
-  // Request caption tracks from the page extractor and wait for response
-  function requestCaptionTracks() {
+  // Request transcript data from the page extractor and wait for response
+  function requestTranscriptData(videoId) {
     return new Promise((resolve) => {
+      // Check if we already have data for this video (arrived via XHR intercept)
+      if (latestTranscriptVideoId === videoId && latestTranscriptData) {
+        console.log('[Waffle Skipper] Using already-captured transcript for', videoId);
+        resolve({ transcript: latestTranscriptData, tracks: [], videoId: videoId });
+        return;
+      }
+
       captionResolve = resolve;
 
-      // Ask the page extractor to send us caption data
-      window.postMessage({ source: 'waffle-skipper-request' }, '*');
+      // Ask the page extractor if it has captured data for this video
+      window.postMessage({ source: 'waffle-skipper-request', videoId: videoId }, '*');
 
-      // Timeout after 5 seconds
+      // Timeout after 8 seconds
       setTimeout(() => {
         if (captionResolve === resolve) {
           captionResolve = null;
-          resolve({ tracks: [], error: 'Timeout waiting for page extractor' });
+          resolve({ transcript: null, tracks: [], error: 'Timeout waiting for transcript capture' });
         }
-      }, 5000);
+      }, 8000);
     });
   }
 
@@ -146,13 +167,14 @@
     wafflesZapped = 0;
     timeSavedSec = 0;
 
-    // Start analysis — delay to let YouTube's player initialize after SPA navigation
-    // The page-extractor also has a 1s delay on yt-navigate-finish
+    // Start analysis with a short delay — the XHR intercept is already capturing
+    // YouTube's caption requests passively, so we just need to give YouTube
+    // time to start fetching captions for the player
     setTimeout(() => {
       if (videoId === currentVideoId) {
         analyzeVideo(videoId);
       }
-    }, 2000);
+    }, 1000);
   }
 
   function getVideoId() {
@@ -173,42 +195,39 @@
     injectLoadingState();
 
     try {
-      // Request caption tracks from the page extractor (MAIN world script)
-      let captionData = await requestCaptionTracks();
+      // Wait for transcript data captured by the page extractor's XHR intercept.
+      // YouTube fetches captions for its player automatically — we just need to
+      // wait for that request to happen and be captured.
+      let transcriptData = null;
 
-      // If no tracks/transcript found, retry after a longer delay
-      // (YouTube's player might still be initializing on first load)
-      if (!captionData.transcript && (!captionData.tracks || captionData.tracks.length === 0)) {
-        console.log('[Waffle Skipper] No data on first try, retrying in 3s...');
-        await new Promise(r => setTimeout(r, 3000));
-        captionData = await requestCaptionTracks();
+      // Try up to 4 times with increasing delays.
+      // YouTube may take a moment to fetch captions after the player initializes.
+      for (let attempt = 1; attempt <= 4; attempt++) {
+        const data = await requestTranscriptData(videoId);
+
+        if (data.transcript && data.transcript.events && data.transcript.events.length > 0) {
+          transcriptData = data.transcript;
+          console.log(`[Waffle Skipper] Got transcript (attempt ${attempt}): ${transcriptData.events.length} events`);
+          break;
+        }
+
+        if (attempt < 4) {
+          const delay = attempt * 2000; // 2s, 4s, 6s
+          console.log(`[Waffle Skipper] No transcript yet (attempt ${attempt}), retrying in ${delay/1000}s...`);
+          await new Promise(r => setTimeout(r, delay));
+        }
       }
 
-      // Check what we got from the page extractor
-      const hasTranscript = captionData.transcript && captionData.transcript.events;
-      let captionUrl = null;
-
-      if (captionData.tracks && captionData.tracks.length > 0) {
-        captionUrl = captionData.tracks[0].baseUrl;
-        console.log(`[Waffle Skipper] Caption track: ${captionData.tracks[0].lang}`);
+      if (!transcriptData) {
+        console.warn('[Waffle Skipper] No transcript captured after all retries');
       }
 
-      if (hasTranscript) {
-        console.log(`[Waffle Skipper] Got transcript directly: ${captionData.transcript.events.length} events`);
-      } else if (captionUrl) {
-        console.log('[Waffle Skipper] No transcript data, sending URL to background as fallback');
-      } else {
-        console.warn('[Waffle Skipper] No captions or transcript available');
-      }
-
-      // Send to background for chunking + Claude classification.
-      // If the page extractor fetched the transcript (MAIN world has cookies),
-      // pass it directly so background doesn't need to fetch YouTube at all.
+      // Send to background for chunking + Claude classification
       const result = await chrome.runtime.sendMessage({
         type: 'ANALYZE_VIDEO',
         videoId: videoId,
-        captionUrl: captionUrl,
-        transcriptData: hasTranscript ? captionData.transcript : null
+        captionUrl: null,
+        transcriptData: transcriptData
       });
 
       // Check if the user navigated away while we were analyzing

@@ -15,7 +15,7 @@
     {
       "matches": ["https://www.youtube.com/*"],
       "js": ["page-extractor.js"],
-      "run_at": "document_idle",
+      "run_at": "document_start",
       "world": "MAIN"
     },
     {
