@@ -1,160 +1,177 @@
 // page-extractor.js — Runs in the MAIN world (page context)
-// This script has access to YouTube's JS variables like ytInitialPlayerResponse
-// and the movie_player API. It extracts caption track URLs and sends them
-// to the content script (ISOLATED world) via window.postMessage.
+// Has access to YouTube's JS variables AND the page's cookies/session.
+// Extracts caption tracks AND fetches the transcript JSON directly,
+// then sends the full transcript data to the content script via postMessage.
 //
-// Loaded via manifest.json with "world": "MAIN" to bypass YouTube's CSP.
+// This avoids the problem where the background service worker can't fetch
+// YouTube's caption URLs (they contain session-bound auth tokens).
 
 (function () {
   'use strict';
 
   console.log('[Waffle Skipper Extractor] MAIN world script loaded');
 
-  // Extract caption tracks from YouTube's player data and post them
-  function extractAndPostCaptions() {
-    console.log('[Waffle Skipper Extractor] Extracting caption tracks...');
-    var captionTracks = null;
-    var methodUsed = 'none';
+  // ============================================================
+  // Caption Track Extraction
+  // ============================================================
 
-    // Method 1: movie_player.getPlayerResponse()
-    // Best for SPA navigations where ytInitialPlayerResponse is stale
+  function findCaptionTracks() {
+    var captionTracks = null;
+
+    // Method 1: movie_player.getPlayerResponse() — best for SPA navigations
     try {
       var player = document.getElementById('movie_player');
-      console.log('[Waffle Skipper Extractor] movie_player found:', !!player);
-      if (player) {
-        console.log('[Waffle Skipper Extractor] getPlayerResponse exists:', typeof player.getPlayerResponse);
-        if (typeof player.getPlayerResponse === 'function') {
-          var resp = player.getPlayerResponse();
-          console.log('[Waffle Skipper Extractor] getPlayerResponse returned:', !!resp);
-          if (resp) {
-            console.log('[Waffle Skipper Extractor] resp.captions exists:', !!resp.captions);
-            if (resp.captions && resp.captions.playerCaptionsTracklistRenderer) {
-              captionTracks = resp.captions.playerCaptionsTracklistRenderer.captionTracks;
-              methodUsed = 'getPlayerResponse';
-              console.log('[Waffle Skipper Extractor] Method 1 found tracks:', captionTracks ? captionTracks.length : 0);
+      if (player && typeof player.getPlayerResponse === 'function') {
+        var resp = player.getPlayerResponse();
+        if (resp && resp.captions && resp.captions.playerCaptionsTracklistRenderer) {
+          captionTracks = resp.captions.playerCaptionsTracklistRenderer.captionTracks;
+          if (captionTracks && captionTracks.length > 0) {
+            console.log('[Waffle Skipper Extractor] Found', captionTracks.length, 'tracks via getPlayerResponse');
+            return captionTracks;
+          }
+        }
+      }
+    } catch (e) {}
+
+    // Method 2: ytInitialPlayerResponse global — works on initial page load
+    try {
+      if (window.ytInitialPlayerResponse &&
+          window.ytInitialPlayerResponse.captions &&
+          window.ytInitialPlayerResponse.captions.playerCaptionsTracklistRenderer) {
+        captionTracks = window.ytInitialPlayerResponse.captions.playerCaptionsTracklistRenderer.captionTracks;
+        if (captionTracks && captionTracks.length > 0) {
+          console.log('[Waffle Skipper Extractor] Found', captionTracks.length, 'tracks via ytInitialPlayerResponse');
+          return captionTracks;
+        }
+      }
+    } catch (e) {}
+
+    // Method 3: Scan script tags for embedded caption data
+    try {
+      var scripts = document.getElementsByTagName('script');
+      for (var i = 0; i < scripts.length; i++) {
+        var text = scripts[i].textContent;
+        if (text && text.length > 100 && text.indexOf('"captionTracks"') !== -1) {
+          var idx = text.indexOf('"captionTracks":');
+          var bracketStart = text.indexOf('[', idx);
+          if (bracketStart !== -1 && bracketStart - idx < 20) {
+            var depth = 0, bracketEnd = bracketStart;
+            for (var j = bracketStart; j < text.length && j < bracketStart + 10000; j++) {
+              if (text[j] === '[') depth++;
+              if (text[j] === ']') { depth--; if (depth === 0) { bracketEnd = j + 1; break; } }
             }
-          }
-        }
-      }
-    } catch (e) {
-      console.warn('[Waffle Skipper Extractor] Method 1 error:', e.message);
-    }
-
-    // Method 2: ytInitialPlayerResponse global
-    // Works on initial page load (not SPA nav)
-    if (!captionTracks || captionTracks.length === 0) {
-      try {
-        console.log('[Waffle Skipper Extractor] ytInitialPlayerResponse exists:', typeof window.ytInitialPlayerResponse !== 'undefined');
-        if (window.ytInitialPlayerResponse) {
-          console.log('[Waffle Skipper Extractor] ytIPR.captions exists:', !!(window.ytInitialPlayerResponse.captions));
-          if (window.ytInitialPlayerResponse.captions &&
-              window.ytInitialPlayerResponse.captions.playerCaptionsTracklistRenderer) {
-            captionTracks = window.ytInitialPlayerResponse.captions.playerCaptionsTracklistRenderer.captionTracks;
-            methodUsed = 'ytInitialPlayerResponse';
-            console.log('[Waffle Skipper Extractor] Method 2 found tracks:', captionTracks ? captionTracks.length : 0);
-          }
-        }
-      } catch (e) {
-        console.warn('[Waffle Skipper Extractor] Method 2 error:', e.message);
-      }
-    }
-
-    // Method 3: ytplayer.config.args.raw_player_response
-    // Another location YouTube sometimes stores player data
-    if (!captionTracks || captionTracks.length === 0) {
-      try {
-        if (window.ytplayer && window.ytplayer.config && window.ytplayer.config.args) {
-          var rawResp = window.ytplayer.config.args.raw_player_response;
-          if (rawResp && rawResp.captions && rawResp.captions.playerCaptionsTracklistRenderer) {
-            captionTracks = rawResp.captions.playerCaptionsTracklistRenderer.captionTracks;
-            methodUsed = 'ytplayer.config';
-            console.log('[Waffle Skipper Extractor] Method 3 found tracks:', captionTracks ? captionTracks.length : 0);
-          }
-        }
-      } catch (e) {
-        console.warn('[Waffle Skipper Extractor] Method 3 error:', e.message);
-      }
-    }
-
-    // Method 4: Scan page HTML for captionTracks data
-    // Last resort — works even if JS variables have been garbage collected
-    if (!captionTracks || captionTracks.length === 0) {
-      try {
-        var scripts = document.getElementsByTagName('script');
-        for (var i = 0; i < scripts.length; i++) {
-          var text = scripts[i].textContent;
-          if (text && text.length > 100 && text.indexOf('"captionTracks"') !== -1) {
-            // Find the captionTracks array in the script content
-            var captionIdx = text.indexOf('"captionTracks":');
-            if (captionIdx !== -1) {
-              var bracketStart = text.indexOf('[', captionIdx);
-              if (bracketStart !== -1 && bracketStart - captionIdx < 20) {
-                // Find matching closing bracket by tracking depth
-                var depth = 0;
-                var bracketEnd = bracketStart;
-                for (var j = bracketStart; j < text.length && j < bracketStart + 10000; j++) {
-                  if (text[j] === '[') depth++;
-                  if (text[j] === ']') {
-                    depth--;
-                    if (depth === 0) { bracketEnd = j + 1; break; }
-                  }
-                }
-                if (bracketEnd > bracketStart) {
-                  captionTracks = JSON.parse(text.substring(bracketStart, bracketEnd));
-                  methodUsed = 'HTML parsing';
-                  console.log('[Waffle Skipper Extractor] Method 4 found tracks:', captionTracks ? captionTracks.length : 0);
-                  break;
-                }
+            if (bracketEnd > bracketStart) {
+              captionTracks = JSON.parse(text.substring(bracketStart, bracketEnd));
+              if (captionTracks && captionTracks.length > 0) {
+                console.log('[Waffle Skipper Extractor] Found', captionTracks.length, 'tracks via HTML parsing');
+                return captionTracks;
               }
             }
           }
         }
-      } catch (e) {
-        console.warn('[Waffle Skipper Extractor] Method 4 error:', e.message);
       }
-    }
+    } catch (e) {}
 
-    // Build and send the result
-    var message = { source: 'waffle-skipper-extractor' };
-
-    if (captionTracks && captionTracks.length > 0) {
-      message.tracks = [];
-      for (var k = 0; k < captionTracks.length; k++) {
-        var t = captionTracks[k];
-        message.tracks.push({
-          baseUrl: t.baseUrl,
-          lang: t.languageCode,
-          name: (t.name && t.name.simpleText) || t.languageCode,
-          kind: t.kind || ''
-        });
-      }
-      message.method = methodUsed;
-      console.log('[Waffle Skipper Extractor] Posting', message.tracks.length, 'tracks via', methodUsed);
-    } else {
-      message.tracks = [];
-      message.error = 'No caption tracks found via any method';
-      console.warn('[Waffle Skipper Extractor] No tracks found by any method');
-    }
-
-    window.postMessage(message, '*');
+    return null;
   }
 
-  // Run extraction on initial load
-  // Use a small delay to ensure YouTube's player is initialized
-  setTimeout(extractAndPostCaptions, 500);
+  // Pick the best caption track (prefer English)
+  function pickBestTrack(tracks) {
+    return tracks.find(function(t) { return t.languageCode === 'en'; })
+      || tracks.find(function(t) { return t.languageCode && t.languageCode.indexOf('en') === 0; })
+      || tracks[0];
+  }
+
+  // ============================================================
+  // Transcript Fetching (from MAIN world = has YouTube cookies)
+  // ============================================================
+
+  // Fetch the transcript JSON directly from the MAIN world.
+  // Using XMLHttpRequest because it sends cookies with the request,
+  // which is required for YouTube's session-bound caption URLs.
+  function fetchTranscriptJSON(captionUrl, callback) {
+    var url = captionUrl.indexOf('fmt=json3') !== -1 ? captionUrl : captionUrl + '&fmt=json3';
+    console.log('[Waffle Skipper Extractor] Fetching transcript from:', url.substring(0, 80) + '...');
+
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', url, true);
+    xhr.onload = function () {
+      if (xhr.status === 200) {
+        try {
+          var data = JSON.parse(xhr.responseText);
+          if (data.events && data.events.length > 0) {
+            console.log('[Waffle Skipper Extractor] Got transcript:', data.events.length, 'events');
+            callback(data);
+            return;
+          }
+        } catch (e) {
+          console.warn('[Waffle Skipper Extractor] Failed to parse transcript JSON:', e.message);
+        }
+      } else {
+        console.warn('[Waffle Skipper Extractor] Transcript fetch HTTP error:', xhr.status);
+      }
+      callback(null);
+    };
+    xhr.onerror = function () {
+      console.warn('[Waffle Skipper Extractor] Transcript fetch network error');
+      callback(null);
+    };
+    xhr.send();
+  }
+
+  // ============================================================
+  // Main Extraction + Fetch Pipeline
+  // ============================================================
+
+  function extractAndPost() {
+    var captionTracks = findCaptionTracks();
+
+    if (!captionTracks || captionTracks.length === 0) {
+      console.log('[Waffle Skipper Extractor] No caption tracks found');
+      window.postMessage({
+        source: 'waffle-skipper-extractor',
+        tracks: [],
+        transcript: null,
+        error: 'No caption tracks found'
+      }, '*');
+      return;
+    }
+
+    var bestTrack = pickBestTrack(captionTracks);
+    var trackInfo = {
+      baseUrl: bestTrack.baseUrl,
+      lang: bestTrack.languageCode,
+      name: (bestTrack.name && bestTrack.name.simpleText) || bestTrack.languageCode
+    };
+    console.log('[Waffle Skipper Extractor] Best track:', trackInfo.lang, trackInfo.name);
+
+    // Fetch the actual transcript JSON from the MAIN world (has cookies)
+    fetchTranscriptJSON(bestTrack.baseUrl, function (transcriptData) {
+      window.postMessage({
+        source: 'waffle-skipper-extractor',
+        tracks: [trackInfo],
+        transcript: transcriptData // Full JSON3 transcript data, or null if fetch failed
+      }, '*');
+    });
+  }
+
+  // ============================================================
+  // Event Listeners
+  // ============================================================
+
+  // Initial extraction after page loads
+  setTimeout(extractAndPost, 1000);
 
   // Re-extract on YouTube SPA navigations
   document.addEventListener('yt-navigate-finish', function () {
-    console.log('[Waffle Skipper Extractor] yt-navigate-finish detected, re-extracting...');
-    // Longer delay on SPA nav to let the player fully initialize
-    setTimeout(extractAndPostCaptions, 1500);
+    console.log('[Waffle Skipper Extractor] yt-navigate-finish, re-extracting...');
+    setTimeout(extractAndPost, 2000);
   });
 
   // Listen for explicit requests from the content script
   window.addEventListener('message', function (event) {
     if (event.data && event.data.source === 'waffle-skipper-request') {
-      console.log('[Waffle Skipper Extractor] Received request from content script');
-      extractAndPostCaptions();
+      extractAndPost();
     }
   });
 })();

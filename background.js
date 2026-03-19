@@ -288,7 +288,7 @@ async function cacheAnalysis(videoId, segments) {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'ANALYZE_VIDEO') {
     // Handle async — return true to keep the message channel open
-    handleAnalyzeVideo(message.videoId, message.captionUrl)
+    handleAnalyzeVideo(message.videoId, message.captionUrl, message.transcriptData)
       .then(result => sendResponse(result))
       .catch(err => sendResponse({ error: err.message }));
     return true; // Required for async sendResponse
@@ -305,8 +305,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 // Full analysis pipeline: cache check → transcript → chunk → classify → cache
-// captionUrl is optionally provided by the content script (extracted from page context)
-async function handleAnalyzeVideo(videoId, captionUrl) {
+// transcriptData: if the page extractor (MAIN world) already fetched the transcript,
+//   it's passed here directly so we skip YouTube fetching entirely.
+// captionUrl: fallback URL if transcriptData is not available.
+async function handleAnalyzeVideo(videoId, captionUrl, transcriptData) {
   if (!videoId) {
     return { error: 'NO_VIDEO_ID' };
   }
@@ -323,12 +325,19 @@ async function handleAnalyzeVideo(videoId, captionUrl) {
     return { error: 'NO_API_KEY' };
   }
 
-  // Fetch transcript — pass the caption URL from the content script if available
+  // Get transcript data — prefer the pre-fetched data from the page extractor
   let timedTextData;
-  try {
-    timedTextData = await fetchTranscript(videoId, captionUrl);
-  } catch (err) {
-    return { error: err.message };
+  if (transcriptData && transcriptData.events && transcriptData.events.length > 0) {
+    // Transcript was already fetched by the MAIN world script (has YouTube cookies)
+    console.log(`[Waffle Skipper] Using pre-fetched transcript: ${transcriptData.events.length} events`);
+    timedTextData = transcriptData;
+  } else {
+    // Fallback: try fetching from the service worker
+    try {
+      timedTextData = await fetchTranscript(videoId, captionUrl);
+    } catch (err) {
+      return { error: err.message };
+    }
   }
 
   // Chunk the transcript

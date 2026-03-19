@@ -72,12 +72,14 @@
   // Caption Track Reception (from page-extractor.js via postMessage)
   // ============================================================
 
-  // Listen for caption track data posted by page-extractor.js (MAIN world).
-  // The extractor runs in the page context and can read ytInitialPlayerResponse
-  // and the movie_player API — things we can't access from the ISOLATED world.
+  // Listen for data posted by page-extractor.js (MAIN world).
+  // The extractor runs in the page context with YouTube's cookies,
+  // so it can both find caption tracks AND fetch the transcript JSON directly.
   window.addEventListener('message', (event) => {
     if (event.data && event.data.source === 'waffle-skipper-extractor') {
-      console.log('[Waffle Skipper] Received caption data from page extractor:', event.data);
+      console.log('[Waffle Skipper] Received data from page extractor:',
+        event.data.tracks?.length || 0, 'tracks,',
+        event.data.transcript ? event.data.transcript.events?.length + ' events' : 'no transcript');
       if (captionResolve) {
         captionResolve(event.data);
         captionResolve = null;
@@ -174,30 +176,39 @@
       // Request caption tracks from the page extractor (MAIN world script)
       let captionData = await requestCaptionTracks();
 
-      // If no tracks found, retry once after a delay (player might still be loading)
-      if (!captionData.tracks || captionData.tracks.length === 0) {
-        console.log('[Waffle Skipper] No tracks on first try, retrying in 2s...');
-        await new Promise(r => setTimeout(r, 2000));
+      // If no tracks/transcript found, retry after a longer delay
+      // (YouTube's player might still be initializing on first load)
+      if (!captionData.transcript && (!captionData.tracks || captionData.tracks.length === 0)) {
+        console.log('[Waffle Skipper] No data on first try, retrying in 3s...');
+        await new Promise(r => setTimeout(r, 3000));
         captionData = await requestCaptionTracks();
       }
 
-      console.log('[Waffle Skipper] Caption tracks:', captionData);
-
-      // Find the best caption track URL
+      // Check what we got from the page extractor
+      const hasTranscript = captionData.transcript && captionData.transcript.events;
       let captionUrl = null;
+
       if (captionData.tracks && captionData.tracks.length > 0) {
-        const englishTrack = captionData.tracks.find(t => t.lang === 'en')
-          || captionData.tracks.find(t => t.lang && t.lang.startsWith('en'))
-          || captionData.tracks[0];
-        captionUrl = englishTrack.baseUrl;
-        console.log(`[Waffle Skipper] Using caption track: ${englishTrack.lang} (${englishTrack.name})`);
+        captionUrl = captionData.tracks[0].baseUrl;
+        console.log(`[Waffle Skipper] Caption track: ${captionData.tracks[0].lang}`);
       }
 
-      // Send to background service worker for transcript fetching + Claude classification
+      if (hasTranscript) {
+        console.log(`[Waffle Skipper] Got transcript directly: ${captionData.transcript.events.length} events`);
+      } else if (captionUrl) {
+        console.log('[Waffle Skipper] No transcript data, sending URL to background as fallback');
+      } else {
+        console.warn('[Waffle Skipper] No captions or transcript available');
+      }
+
+      // Send to background for chunking + Claude classification.
+      // If the page extractor fetched the transcript (MAIN world has cookies),
+      // pass it directly so background doesn't need to fetch YouTube at all.
       const result = await chrome.runtime.sendMessage({
         type: 'ANALYZE_VIDEO',
         videoId: videoId,
-        captionUrl: captionUrl
+        captionUrl: captionUrl,
+        transcriptData: hasTranscript ? captionData.transcript : null
       });
 
       // Check if the user navigated away while we were analyzing
