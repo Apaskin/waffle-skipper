@@ -1,0 +1,253 @@
+/* options.css — Waffle Skipper options page styles
+ * Same retro arcade aesthetic as the popup
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+/* ============================================================
+   Reset & Base
+   ============================================================ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: #1a1a2e;
+  font-family: 'Press Start 2P', monospace;
+  color: #e2b714;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 40px 20px;
+}
+
+/* ============================================================
+   CRT Scanline Overlay
+   ============================================================ */
+
+.crt-overlay {
+  pointer-events: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.10) 0px,
+    rgba(0, 0, 0, 0.10) 1px,
+    transparent 1px,
+    transparent 2px
+  );
+  z-index: 999;
+}
+
+/* ============================================================
+   Container
+   ============================================================ */
+
+.options-container {
+  max-width: 480px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* ============================================================
+   Header
+   ============================================================ */
+
+.options-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-bottom: 20px;
+  border-bottom: 2px solid #e2b714;
+}
+
+.mascot {
+  font-size: 40px;
+  line-height: 1;
+}
+
+.options-title {
+  font-size: 16px;
+  color: #e2b714;
+  text-shadow: 0 0 10px rgba(226, 183, 20, 0.6), 0 0 20px rgba(226, 183, 20, 0.3);
+  letter-spacing: 2px;
+}
+
+.options-subtitle {
+  font-size: 9px;
+  color: #00d4ff;
+  text-shadow: 0 0 6px rgba(0, 212, 255, 0.4);
+  margin-top: 6px;
+  letter-spacing: 3px;
+}
+
+/* ============================================================
+   Sections
+   ============================================================ */
+
+.options-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  background: rgba(15, 15, 35, 0.6);
+  border: 1px solid #2a2a4a;
+  border-radius: 6px;
+}
+
+.field-label {
+  font-size: 9px;
+  color: #e2b714;
+  letter-spacing: 1px;
+}
+
+.field-hint {
+  font-size: 7px;
+  color: #5a6988;
+  line-height: 1.5;
+}
+
+/* ============================================================
+   API Key Input
+   ============================================================ */
+
+.api-key-input {
+  width: 100%;
+  padding: 12px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  color: #00ff41;
+  background: #0a0a1a;
+  border: 2px solid #2a2a4a;
+  border-radius: 4px;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.api-key-input:focus {
+  border-color: #00d4ff;
+  box-shadow: 0 0 8px rgba(0, 212, 255, 0.3);
+}
+
+.api-key-input::placeholder {
+  color: #2a2a4a;
+}
+
+/* ============================================================
+   Buttons
+   ============================================================ */
+
+.button-row {
+  display: flex;
+  gap: 8px;
+}
+
+.save-btn {
+  flex: 1;
+  padding: 10px 16px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 9px;
+  color: #1a1a2e;
+  background: #e2b714;
+  border: 2px solid #e2b714;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-shadow: none;
+}
+
+.save-btn:hover {
+  background: #f5ca28;
+  box-shadow: 0 0 12px rgba(226, 183, 20, 0.5);
+}
+
+.save-btn:active {
+  transform: scale(0.95);
+}
+
+.toggle-btn {
+  padding: 10px 14px;
+  font-size: 14px;
+  background: #0f0f23;
+  border: 2px solid #2a2a4a;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.toggle-btn:hover {
+  border-color: #5a6988;
+}
+
+.clear-btn {
+  padding: 10px 16px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  color: #ff6b35;
+  background: #0f0f23;
+  border: 2px solid #ff6b35;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.clear-btn:hover {
+  background: #ff6b35;
+  color: #1a1a2e;
+  box-shadow: 0 0 12px rgba(255, 107, 53, 0.5);
+}
+
+.clear-btn:active {
+  transform: scale(0.95);
+}
+
+/* ============================================================
+   Status Message
+   ============================================================ */
+
+.status-message {
+  display: none;
+  font-size: 8px;
+  padding: 8px;
+  border-radius: 3px;
+  text-align: center;
+}
+
+.status-message.success {
+  color: #00ff41;
+  text-shadow: 0 0 6px rgba(0, 255, 65, 0.5);
+}
+
+.status-message.error {
+  color: #ff6b35;
+  text-shadow: 0 0 6px rgba(255, 107, 53, 0.5);
+}
+
+.status-message.info {
+  color: #00d4ff;
+  text-shadow: 0 0 6px rgba(0, 212, 255, 0.4);
+}
+
+/* ============================================================
+   Footer
+   ============================================================ */
+
+.options-footer {
+  text-align: center;
+  padding-top: 16px;
+}
+
+.version-text {
+  font-size: 7px;
+  color: #2a2a4a;
+  letter-spacing: 1px;
+}

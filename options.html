@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="options.css">
+  <title>Waffle Skipper — Settings</title>
+</head>
+<body>
+  <!-- CRT scanline overlay -->
+  <div class="crt-overlay"></div>
+
+  <div class="options-container">
+    <!-- Header -->
+    <header class="options-header">
+      <span class="mascot">🧇</span>
+      <div>
+        <h1 class="options-title">WAFFLE SKIPPER</h1>
+        <p class="options-subtitle">SETTINGS</p>
+      </div>
+    </header>
+
+    <!-- API Key Section -->
+    <section class="options-section">
+      <label class="field-label" for="api-key">ANTHROPIC API KEY</label>
+      <p class="field-hint">Get your key from console.anthropic.com</p>
+      <input
+        type="password"
+        id="api-key"
+        class="api-key-input"
+        placeholder="sk-ant-..."
+        autocomplete="off"
+        spellcheck="false"
+      >
+      <div class="button-row">
+        <button id="btn-save" class="save-btn">SAVE KEY</button>
+        <button id="btn-toggle-visibility" class="toggle-btn" title="Show/hide key">👁</button>
+      </div>
+      <div id="status-message" class="status-message"></div>
+    </section>
+
+    <!-- Cache Section -->
+    <section class="options-section">
+      <label class="field-label">CACHE</label>
+      <p class="field-hint">Clear cached video analyses</p>
+      <button id="btn-clear-cache" class="clear-btn">CLEAR CACHE</button>
+    </section>
+
+    <!-- About -->
+    <footer class="options-footer">
+      <p class="version-text">V0.1.0 — SKIP THE WAFFLE</p>
+    </footer>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>

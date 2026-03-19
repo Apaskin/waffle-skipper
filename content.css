@@ -1,0 +1,233 @@
+/* content.css — Waffle Skipper YouTube overlay styles
+ * Retro arcade aesthetic: Press Start 2P font, neon colours, glow effects
+ * Injected on YouTube watch pages alongside content.js
+ */
+
+/* Load the retro pixel font */
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+/* ============================================================
+   Colour palette
+   ============================================================
+   Dark bg:    #1a1a2e
+   Gold:       #e2b714
+   Neon green: #00ff41
+   Orange:     #ff6b35
+   Cyan:       #00d4ff
+   Dim text:   #5a6988
+   ============================================================ */
+
+/* ============================================================
+   Timeline Overlay — 8px bar below YouTube's progress bar
+   ============================================================ */
+
+#waffle-timeline {
+  height: 8px;
+  width: 100%;
+  position: relative;
+  background: #1a1a2e;
+  margin-top: 2px;
+  border-radius: 2px;
+  overflow: hidden;
+  z-index: 60;
+  box-shadow: 0 0 4px rgba(226, 183, 20, 0.3);
+}
+
+.waffle-segment {
+  position: absolute;
+  height: 100%;
+  top: 0;
+  transition: filter 0.15s ease, transform 0.15s ease;
+  min-width: 2px; /* Ensure tiny segments are visible */
+}
+
+.waffle-segment.substance {
+  background: #00ff41;
+  box-shadow: inset 0 0 2px rgba(0, 255, 65, 0.5);
+}
+
+.waffle-segment.waffle {
+  background: #ff6b35;
+  box-shadow: inset 0 0 2px rgba(255, 107, 53, 0.5);
+  cursor: pointer;
+}
+
+.waffle-segment:hover {
+  filter: brightness(1.4);
+  transform: scaleY(1.5);
+  z-index: 1;
+}
+
+/* ============================================================
+   Tooltip — appears on segment hover
+   ============================================================ */
+
+#waffle-tooltip {
+  position: fixed;
+  transform: translateX(-50%) translateY(-100%);
+  background: #1a1a2e;
+  border: 2px solid #e2b714;
+  border-radius: 4px;
+  padding: 8px 12px;
+  z-index: 10000;
+  pointer-events: none;
+  font-family: 'Press Start 2P', monospace;
+  box-shadow: 0 0 10px rgba(226, 183, 20, 0.4), inset 0 0 6px rgba(0, 0, 0, 0.5);
+  max-width: 300px;
+}
+
+.waffle-tooltip-label {
+  font-size: 8px;
+  font-weight: bold;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.waffle-tooltip-label.substance {
+  color: #00ff41;
+  text-shadow: 0 0 6px rgba(0, 255, 65, 0.5);
+}
+
+.waffle-tooltip-label.waffle {
+  color: #ff6b35;
+  text-shadow: 0 0 6px rgba(255, 107, 53, 0.5);
+}
+
+.waffle-tooltip-time {
+  font-size: 7px;
+  color: #00d4ff;
+  margin-bottom: 4px;
+}
+
+.waffle-tooltip-text {
+  font-size: 7px;
+  color: #5a6988;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+/* ============================================================
+   Floating Scoreboard — bottom-right of video player
+   ============================================================ */
+
+#waffle-scoreboard {
+  position: absolute;
+  bottom: 60px;
+  right: 12px;
+  background: rgba(26, 26, 46, 0.92);
+  border: 2px solid #e2b714;
+  border-radius: 6px;
+  padding: 8px 12px;
+  z-index: 70;
+  font-family: 'Press Start 2P', monospace;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 0 12px rgba(226, 183, 20, 0.3), inset 0 0 8px rgba(0, 0, 0, 0.4);
+  /* CRT scanline effect — subtle */
+  background-image: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.08) 0px,
+    rgba(0, 0, 0, 0.08) 1px,
+    transparent 1px,
+    transparent 2px
+  );
+}
+
+.waffle-scoreboard-mascot {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.waffle-scoreboard-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.waffle-scoreboard-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.waffle-label {
+  font-size: 7px;
+  color: #5a6988;
+}
+
+.waffle-value {
+  font-size: 8px;
+  color: #e2b714;
+  text-shadow: 0 0 4px rgba(226, 183, 20, 0.5);
+}
+
+/* Pulse animation when counter increments */
+.waffle-pulse {
+  animation: wafflePulse 0.3s ease-out;
+}
+
+@keyframes wafflePulse {
+  0% { transform: scale(1); color: #e2b714; }
+  50% { transform: scale(1.4); color: #00ff41; }
+  100% { transform: scale(1); color: #e2b714; }
+}
+
+/* ============================================================
+   Loading State — pulsing "ANALYZING..." bar
+   ============================================================ */
+
+#waffle-loading {
+  height: 24px;
+  width: 100%;
+  position: relative;
+  background: #1a1a2e;
+  margin-top: 2px;
+  border-radius: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 60;
+  overflow: hidden;
+  box-shadow: 0 0 4px rgba(226, 183, 20, 0.3);
+}
+
+.waffle-loading-text {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  color: #e2b714;
+  text-shadow: 0 0 8px rgba(226, 183, 20, 0.6);
+  animation: waffleBlink 1s ease-in-out infinite;
+}
+
+@keyframes waffleBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* ============================================================
+   Error State
+   ============================================================ */
+
+#waffle-error {
+  height: 24px;
+  width: 100%;
+  position: relative;
+  background: #1a1a2e;
+  margin-top: 2px;
+  border-radius: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 60;
+  overflow: hidden;
+  box-shadow: 0 0 4px rgba(255, 107, 53, 0.3);
+}
+
+.waffle-error-text {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  color: #ff6b35;
+  text-shadow: 0 0 6px rgba(255, 107, 53, 0.5);
+}

@@ -1,0 +1,248 @@
+/* popup.css — Waffle Skipper popup styles
+ * Retro arcade aesthetic: Press Start 2P, CRT scanlines, neon glow
+ * Width: 320px
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+/* ============================================================
+   Reset & Base
+   ============================================================ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  width: 320px;
+  min-height: 400px;
+  background: #1a1a2e;
+  font-family: 'Press Start 2P', monospace;
+  color: #e2b714;
+  overflow-x: hidden;
+}
+
+/* ============================================================
+   CRT Scanline Overlay
+   ============================================================ */
+
+.crt-overlay {
+  pointer-events: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.12) 0px,
+    rgba(0, 0, 0, 0.12) 1px,
+    transparent 1px,
+    transparent 2px
+  );
+  z-index: 999;
+}
+
+/* ============================================================
+   Container
+   ============================================================ */
+
+.popup-container {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ============================================================
+   Header
+   ============================================================ */
+
+.popup-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid #e2b714;
+}
+
+.mascot {
+  font-size: 32px;
+  line-height: 1;
+}
+
+.popup-title {
+  font-size: 14px;
+  color: #e2b714;
+  text-shadow: 0 0 10px rgba(226, 183, 20, 0.6), 0 0 20px rgba(226, 183, 20, 0.3);
+  line-height: 1.4;
+  letter-spacing: 2px;
+}
+
+/* ============================================================
+   Sections
+   ============================================================ */
+
+.popup-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.section-label {
+  font-size: 7px;
+  color: #5a6988;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+/* ============================================================
+   Video Status
+   ============================================================ */
+
+.video-title {
+  font-size: 8px;
+  color: #00d4ff;
+  text-shadow: 0 0 6px rgba(0, 212, 255, 0.4);
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.analysis-status {
+  font-size: 7px;
+  color: #5a6988;
+}
+
+.analysis-status.analyzing {
+  color: #e2b714;
+  animation: blink 1s ease-in-out infinite;
+}
+
+.analysis-status.ready {
+  color: #00ff41;
+  text-shadow: 0 0 6px rgba(0, 255, 65, 0.5);
+}
+
+.analysis-status.error {
+  color: #ff6b35;
+  text-shadow: 0 0 6px rgba(255, 107, 53, 0.5);
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* ============================================================
+   Mode Buttons
+   ============================================================ */
+
+.mode-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.mode-btn {
+  flex: 1;
+  padding: 10px 6px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  color: #5a6988;
+  background: #0f0f23;
+  border: 2px solid #2a2a4a;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: center;
+}
+
+.mode-btn:hover {
+  color: #e2b714;
+  border-color: #e2b714;
+  box-shadow: 0 0 8px rgba(226, 183, 20, 0.3);
+}
+
+.mode-btn.active {
+  color: #1a1a2e;
+  background: #e2b714;
+  border-color: #e2b714;
+  box-shadow: 0 0 12px rgba(226, 183, 20, 0.5), inset 0 0 4px rgba(0, 0, 0, 0.2);
+  text-shadow: none;
+}
+
+.mode-btn:active {
+  transform: scale(0.95);
+}
+
+/* Specific glow colours for active states */
+#btn-auto.active {
+  background: #00ff41;
+  border-color: #00ff41;
+  color: #1a1a2e;
+  box-shadow: 0 0 12px rgba(0, 255, 65, 0.5);
+}
+
+#btn-off.active {
+  background: #ff6b35;
+  border-color: #ff6b35;
+  color: #1a1a2e;
+  box-shadow: 0 0 12px rgba(255, 107, 53, 0.5);
+}
+
+/* ============================================================
+   Stats
+   ============================================================ */
+
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+}
+
+.stat-label {
+  font-size: 7px;
+  color: #5a6988;
+}
+
+.stat-value {
+  font-size: 9px;
+  color: #e2b714;
+  text-shadow: 0 0 4px rgba(226, 183, 20, 0.4);
+}
+
+.stat-value.green {
+  color: #00ff41;
+  text-shadow: 0 0 4px rgba(0, 255, 65, 0.4);
+}
+
+/* ============================================================
+   Footer
+   ============================================================ */
+
+.popup-footer {
+  padding-top: 10px;
+  border-top: 1px solid #2a2a4a;
+  display: flex;
+  justify-content: center;
+}
+
+.settings-btn {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  color: #5a6988;
+  background: none;
+  border: 1px solid #2a2a4a;
+  border-radius: 3px;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.settings-btn:hover {
+  color: #00d4ff;
+  border-color: #00d4ff;
+  box-shadow: 0 0 6px rgba(0, 212, 255, 0.3);
+}
