@@ -1,0 +1,3 @@
+[project]
+id = ""  # Fill in after creating the Supabase project
+name = "woffle"
