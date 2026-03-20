@@ -19,9 +19,9 @@ function json(data: unknown, status = 200): Response {
 // ============================================================
 // TODO: Replace with real Stripe Price IDs after product creation.
 const PRICE_IDS: Record<string, string> = {
-  plus:  'price_woffle_plus',   // $4.99/mo
-  pro:   'price_woffle_pro',    // $9.99/mo
-  topup: 'price_woffle_topup',  // $1.99 one-time
+  plus:  'price_1TD48yEe9LBq3CUYtMoqbZhd',  // $4.99/mo — Woffle Plus
+  pro:   'price_1TD49hEe9LBq3CUYWQjzen0c',   // $9.99/mo — Woffle Pro
+  topup: 'price_1TD4ABEe9LBq3CUY8GjjLSpo',   // $1.99 one-time — Credit Top-up
 };
 
 // Tier → monthly credit limits
