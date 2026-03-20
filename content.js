@@ -3,7 +3,7 @@
 // - Video ID detection and YouTube SPA navigation
 // - Receiving caption track URLs from page-extractor.js (MAIN world)
 // - Timeline overlay rendering (green=substance, orange=waffle)
-// - Skip logic (AUTO/MANUAL/OFF modes)
+// - Always-on auto-skip logic
 // - Floating scoreboard with live counters
 // - Communication with background service worker for Claude API calls
 
@@ -16,7 +16,6 @@
 
   let currentVideoId = null;       // Currently tracked video ID
   let segments = [];                // Classified segments from Claude
-  let currentMode = 'MANUAL';      // AUTO_SKIP | MANUAL | OFF
   let isAnalyzing = false;         // Whether analysis is in progress
   let analysisError = null;        // Error message if analysis failed
 
@@ -24,8 +23,10 @@
   let wafflesZapped = 0;
   let timeSavedSec = 0;
 
-  // Cooldown flag to prevent double-skipping in AUTO mode
+  // Cooldown flag to prevent double-skipping
   let skipCooldown = false;
+  // When user manually jumps backward into waffle, temporarily bypass auto-skip
+  let bypassAutoSkipUntil = 0;
 
   // References to injected DOM elements (for cleanup)
   let timelineEl = null;
@@ -34,6 +35,7 @@
 
   // Reference to video timeupdate listener (for cleanup)
   let timeupdateHandler = null;
+  let keydownHandler = null;
 
   // Pending resolve — set when we're waiting for page-extractor response
   let captionResolve = null;
@@ -48,21 +50,6 @@
   // ============================================================
   // Initialization
   // ============================================================
-
-  // Load saved mode preference
-  chrome.storage.sync.get('skipMode', (result) => {
-    currentMode = result.skipMode || 'MANUAL';
-    console.log(`[Waffle Skipper] Mode: ${currentMode}`);
-  });
-
-  // Listen for mode changes from popup
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'sync' && changes.skipMode) {
-      currentMode = changes.skipMode.newValue;
-      console.log(`[Waffle Skipper] Mode changed to: ${currentMode}`);
-      applyMode();
-    }
-  });
 
   // Listen for status requests from popup
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -123,18 +110,19 @@
       // Ask the page extractor if it has captured data for this video
       window.postMessage({ source: 'waffle-skipper-request', videoId: videoId }, '*');
 
-      // Timeout after 8 seconds
+      // Timeout after 12 seconds
       setTimeout(() => {
         if (captionResolve === resolve) {
           captionResolve = null;
           resolve({ transcript: null, tracks: [], error: 'Timeout waiting for transcript capture' });
         }
-      }, 8000);
+      }, 12000);
     });
   }
 
   // Start watching for video changes
   initNavigation();
+  setupKeyboardNavigation();
 
   // ============================================================
   // YouTube SPA Navigation
@@ -173,6 +161,7 @@
     // Reset session stats for new video
     wafflesZapped = 0;
     timeSavedSec = 0;
+    bypassAutoSkipUntil = 0;
 
     // Start analysis with a short delay — the XHR intercept is already capturing
     // YouTube's caption requests passively, so we just need to give YouTube
@@ -207,9 +196,9 @@
       // wait for that request to happen and be captured.
       let transcriptData = null;
 
-      // Try up to 4 times with increasing delays.
+      // Try up to 6 times with increasing delays.
       // YouTube may take a moment to fetch captions after the player initializes.
-      for (let attempt = 1; attempt <= 4; attempt++) {
+      for (let attempt = 1; attempt <= 6; attempt++) {
         const data = await requestTranscriptData(videoId);
 
         if (data.transcript && data.transcript.events && data.transcript.events.length > 0) {
@@ -218,15 +207,15 @@
           break;
         }
 
-        if (attempt < 4) {
-          const delay = attempt * 2000; // 2s, 4s, 6s
+        if (attempt < 6) {
+          const delay = attempt * 1500; // 1.5s, 3s, 4.5s, 6s, 7.5s
           console.log(`[Waffle Skipper] No transcript yet (attempt ${attempt}), retrying in ${delay/1000}s...`);
           await new Promise(r => setTimeout(r, delay));
         }
       }
 
       if (!transcriptData) {
-        console.warn('[Waffle Skipper] No transcript captured after all retries');
+        console.warn('[Waffle Skipper] No transcript captured from page extractor; trying background fallback');
       }
 
       // Send to background for chunking + Claude classification
@@ -246,8 +235,9 @@
       if (result.error) {
         console.warn(`[Waffle Skipper] Analysis error: ${result.error}`, result.detail || '');
         isAnalyzing = false;
-        analysisError = result.error;
-        showError(result.error);
+        const normalizedError = normalizeErrorCode(result.error, result.detail);
+        analysisError = normalizedError;
+        showError(normalizedError);
         return;
       }
 
@@ -258,7 +248,7 @@
       // Render the timeline and set up skip logic
       renderTimeline();
       renderScoreboard();
-      applyMode();
+      enableAutoSkip();
 
     } catch (err) {
       console.error('[Waffle Skipper] Analysis failed:', err);
@@ -290,6 +280,16 @@
     // Create timeline container
     timelineEl = document.createElement('div');
     timelineEl.id = 'waffle-timeline';
+    timelineEl.addEventListener('click', (e) => {
+      const vid = document.querySelector('video');
+      if (!vid || !vid.duration) return;
+
+      const rect = timelineEl.getBoundingClientRect();
+      const x = Math.min(Math.max(0, e.clientX - rect.left), rect.width);
+      const targetTime = (x / rect.width) * vid.duration;
+      vid.currentTime = targetTime;
+      console.log(`[Waffle Skipper] Timeline seek: ${formatTime(targetTime)}`);
+    });
 
     // Create a segment div for each classified chunk
     for (const segment of segments) {
@@ -311,17 +311,6 @@
       // Hover tooltip
       segEl.addEventListener('mouseenter', showTooltip);
       segEl.addEventListener('mouseleave', hideTooltip);
-
-      // Click to skip (waffle segments only)
-      if (segment.type === 'waffle') {
-        segEl.addEventListener('click', () => {
-          const vid = document.querySelector('video');
-          if (vid) {
-            vid.currentTime = segment.end;
-            console.log(`[Waffle Skipper] Skipped to ${formatTime(segment.end)}`);
-          }
-        });
-      }
 
       timelineEl.appendChild(segEl);
     }
@@ -402,19 +391,26 @@
     const waffleSegments = segments.filter(s => s.type === 'waffle');
 
     scoreboardEl.innerHTML = `
-      <div class="waffle-scoreboard-mascot">🧇</div>
+      <div class="waffle-scoreboard-head">
+        <span class="waffle-chip">WS</span>
+        <div class="waffle-head-copy">
+          <span class="waffle-head-title">WAFFLE SKIPPER</span>
+          <span class="waffle-head-sub">AUTO SKIP ACTIVE</span>
+        </div>
+      </div>
+      <div class="waffle-scoreboard-hint">TAB NEXT GREEN - SHIFT+TAB PREV</div>
       <div class="waffle-scoreboard-stats">
         <div class="waffle-scoreboard-line">
-          <span class="waffle-label">FOUND:</span>
+          <span class="waffle-label">FOUND</span>
           <span class="waffle-value" id="waffle-found-count">${waffleSegments.length}</span>
         </div>
         <div class="waffle-scoreboard-line">
-          <span class="waffle-label">ZAPPED:</span>
+          <span class="waffle-label">ZAPPED</span>
           <span class="waffle-value" id="waffle-zapped-count">${wafflesZapped}</span>
         </div>
         <div class="waffle-scoreboard-line">
-          <span class="waffle-label">SAVED:</span>
-          <span class="waffle-value" id="waffle-time-saved">${formatTimeSaved(timeSavedSec)}</span>
+          <span class="waffle-label">SAVED</span>
+          <span class="waffle-value waffle-value-good" id="waffle-time-saved">${formatTimeSaved(timeSavedSec)}</span>
         </div>
       </div>
     `;
@@ -440,10 +436,10 @@
   }
 
   // ============================================================
-  // Skip Modes
+  // Skip Behavior
   // ============================================================
 
-  function applyMode() {
+  function enableAutoSkip() {
     // Clean up existing timeupdate listener
     if (timeupdateHandler) {
       const video = document.querySelector('video');
@@ -451,17 +447,12 @@
       timeupdateHandler = null;
     }
 
-    if (currentMode === 'OFF') {
-      if (timelineEl) timelineEl.style.display = 'none';
-      if (scoreboardEl) scoreboardEl.style.display = 'none';
-      return;
-    }
-
-    // Show timeline and scoreboard for MANUAL and AUTO_SKIP
+    // Keep UI visible
     if (timelineEl) timelineEl.style.display = '';
     if (scoreboardEl) scoreboardEl.style.display = '';
+    updateScoreboard();
 
-    if (currentMode === 'AUTO_SKIP' && segments.length > 0) {
+    if (segments.length > 0) {
       const video = document.querySelector('video');
       if (video) {
         timeupdateHandler = () => handleTimeUpdate(video);
@@ -474,12 +465,18 @@
     if (skipCooldown) return;
 
     const currentTime = video.currentTime;
+    if (bypassAutoSkipUntil > 0) {
+      if (currentTime < bypassAutoSkipUntil - 0.1) {
+        return;
+      }
+      bypassAutoSkipUntil = 0;
+    }
 
     for (const segment of segments) {
       if (segment.type === 'waffle' &&
           currentTime >= segment.start &&
           currentTime < segment.end - 0.5) {
-        console.log(`[Waffle Skipper] AUTO SKIP: ${formatTime(segment.start)} → ${formatTime(segment.end)}`);
+        console.log(`[Waffle Skipper] AUTO SKIP: ${formatTime(segment.start)} -> ${formatTime(segment.end)}`);
         video.currentTime = segment.end;
 
         wafflesZapped++;
@@ -493,6 +490,82 @@
     }
   }
 
+  function setupKeyboardNavigation() {
+    if (keydownHandler) return;
+
+    keydownHandler = (event) => {
+      if (event.key !== 'Tab') return;
+      if (event.defaultPrevented) return;
+
+      const activeElement = document.activeElement;
+      const tagName = activeElement?.tagName;
+      const isTypingContext =
+        activeElement?.isContentEditable ||
+        tagName === 'INPUT' ||
+        tagName === 'TEXTAREA' ||
+        tagName === 'SELECT';
+      if (isTypingContext) return;
+      if (!segments.length) return;
+
+      const video = document.querySelector('video');
+      if (!video) return;
+
+      let targetTime = null;
+      let targetSegment = null;
+
+      if (event.shiftKey) {
+        targetSegment = findPreviousSegment(video.currentTime || 0);
+        targetTime = targetSegment ? targetSegment.start : null;
+      } else {
+        targetTime = findNextSubstanceStart(video.currentTime || 0);
+      }
+      if (targetTime == null) return;
+
+      event.preventDefault();
+      video.currentTime = targetTime;
+      if (event.shiftKey && targetSegment && targetSegment.type === 'waffle') {
+        bypassAutoSkipUntil = targetSegment.end;
+        console.log(`[Waffle Skipper] Auto-skip bypass armed until ${formatTime(targetSegment.end)} (manual review)`);
+      } else {
+        bypassAutoSkipUntil = 0;
+      }
+      console.log(`[Waffle Skipper] Section jump (${event.shiftKey ? 'prev' : 'next'}): ${formatTime(targetTime)}`);
+    };
+
+    window.addEventListener('keydown', keydownHandler, true);
+  }
+
+  function findNextSubstanceStart(currentTime) {
+    const threshold = currentTime + 0.5;
+    const next = segments
+      .filter(segment => segment.type === 'substance')
+      .sort((a, b) => a.start - b.start)
+      .find(segment => segment.start > threshold);
+    return next ? next.start : null;
+  }
+
+  function findPreviousSegment(currentTime) {
+    const ordered = [...segments].sort((a, b) => a.start - b.start);
+    if (ordered.length === 0) return null;
+
+    const activeIndex = ordered.findIndex(segment =>
+      currentTime >= segment.start + 0.15 && currentTime < segment.end - 0.15
+    );
+
+    if (activeIndex >= 0) {
+      return ordered[Math.max(0, activeIndex - 1)];
+    }
+
+    const nextIndex = ordered.findIndex(segment => segment.start > currentTime);
+    if (nextIndex === -1) {
+      return ordered[ordered.length - 1];
+    }
+    if (nextIndex === 0) {
+      return ordered[0];
+    }
+    return ordered[nextIndex - 1];
+  }
+
   // ============================================================
   // Loading & Error States
   // ============================================================
@@ -504,7 +577,7 @@
 
     const loadingEl = document.createElement('div');
     loadingEl.id = 'waffle-loading';
-    loadingEl.innerHTML = '<span class="waffle-loading-text">🧇 ANALYZING...</span>';
+    loadingEl.innerHTML = '<span class="waffle-loading-text">WS ANALYZING...</span>';
 
     injectTimeline(loadingEl);
   }
@@ -518,10 +591,14 @@
     errorEl.id = 'waffle-error';
 
     const messages = {
-      'NO_CAPTIONS': '🧇 NO CAPTIONS AVAILABLE',
-      'NO_API_KEY': '🧇 API KEY NOT SET — CLICK EXTENSION ICON',
-      'CLASSIFICATION_FAILED': '🧇 ANALYSIS FAILED — CLICK TO RETRY',
-      'UNKNOWN_ERROR': '🧇 SOMETHING WENT WRONG',
+      'NO_CAPTIONS': 'WS NO CAPTIONS AVAILABLE',
+      'NO_API_KEY': 'WS API KEY NOT SET - OPEN SETTINGS',
+      'INVALID_API_KEY': 'WS API KEY INVALID - CHECK SETTINGS',
+      'NO_CREDITS': 'WS NO API CREDITS - CHECK BILLING',
+      'RATE_LIMIT': 'WS RATE LIMITED - TRY AGAIN SOON',
+      'MODEL_UNAVAILABLE': 'WS MODEL NOT AVAILABLE - CHECK ACCESS',
+      'CLASSIFICATION_FAILED': 'WS ANALYSIS FAILED - CLICK TO RETRY',
+      'UNKNOWN_ERROR': 'WS SOMETHING WENT WRONG',
     };
 
     const msg = messages[errorCode] || messages['UNKNOWN_ERROR'];
@@ -537,6 +614,19 @@
     }
 
     injectTimeline(errorEl);
+  }
+
+  function normalizeErrorCode(errorCode, detail) {
+    if (errorCode === 'CLASSIFICATION_FAILED' && typeof detail === 'string') {
+      const lower = detail.toLowerCase();
+      if (lower.includes('api_error: 401') || lower.includes('api_error:401')) {
+        return 'INVALID_API_KEY';
+      }
+      if (lower.includes('api_error: 429') || lower.includes('api_error:429')) {
+        return 'RATE_LIMIT';
+      }
+    }
+    return errorCode;
   }
 
   // ============================================================
@@ -564,7 +654,7 @@
       totalWaffleTimeSec: totalWaffleTime,
       wafflesZapped,
       timeSavedSec,
-      currentMode,
+      autoSkipEnabled: true,
       videoDuration: video?.duration || 0,
     };
   }

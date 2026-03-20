@@ -1,13 +1,20 @@
-/* popup.css — Waffle Skipper popup styles
- * Retro arcade aesthetic: Press Start 2P, CRT scanlines, neon glow
- * Width: 320px
- */
+/* popup.css - Waffle Skipper popup styles */
 
-@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap');
 
-/* ============================================================
-   Reset & Base
-   ============================================================ */
+:root {
+  --bg-0: #090b1f;
+  --bg-1: #101732;
+  --panel: rgba(16, 23, 50, 0.88);
+  --panel-strong: rgba(20, 29, 62, 0.94);
+  --ink-dim: #5f719f;
+  --ink-main: #8ea4d8;
+  --accent-gold: #ffce3a;
+  --accent-cyan: #3fd7ff;
+  --accent-green: #28f06a;
+  --accent-orange: #ff9254;
+  --line: rgba(125, 152, 219, 0.24);
+}
 
 * {
   margin: 0;
@@ -16,233 +23,203 @@
 }
 
 body {
-  width: 320px;
-  min-height: 400px;
-  background: #1a1a2e;
-  font-family: 'Press Start 2P', monospace;
-  color: #e2b714;
+  width: 360px;
+  min-height: 430px;
   overflow-x: hidden;
+  color: var(--ink-main);
+  font-family: 'Press Start 2P', monospace;
+  background:
+    radial-gradient(120% 80% at 8% -10%, rgba(63, 215, 255, 0.2), transparent 60%),
+    radial-gradient(90% 70% at 100% 0%, rgba(255, 146, 84, 0.16), transparent 60%),
+    linear-gradient(165deg, var(--bg-0) 0%, var(--bg-1) 100%);
 }
-
-/* ============================================================
-   CRT Scanline Overlay
-   ============================================================ */
 
 .crt-overlay {
   pointer-events: none;
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: repeating-linear-gradient(
-    0deg,
-    rgba(0, 0, 0, 0.12) 0px,
-    rgba(0, 0, 0, 0.12) 1px,
-    transparent 1px,
-    transparent 2px
-  );
+  inset: 0;
+  background:
+    repeating-linear-gradient(
+      0deg,
+      rgba(0, 0, 0, 0.1) 0px,
+      rgba(0, 0, 0, 0.1) 1px,
+      transparent 1px,
+      transparent 2px
+    );
+  mix-blend-mode: soft-light;
   z-index: 999;
 }
 
-/* ============================================================
-   Container
-   ============================================================ */
-
 .popup-container {
-  padding: 16px;
+  position: relative;
+  padding: 14px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
 }
 
-/* ============================================================
-   Header
-   ============================================================ */
+.popup-container::before {
+  content: '';
+  position: absolute;
+  inset: 10px;
+  border: 1px solid rgba(255, 206, 58, 0.24);
+  border-radius: 10px;
+  pointer-events: none;
+}
 
 .popup-header {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding-bottom: 12px;
-  border-bottom: 2px solid #e2b714;
+  padding: 8px 10px 10px;
+  background: var(--panel-strong);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px rgba(9, 14, 33, 0.7), 0 12px 22px rgba(2, 5, 16, 0.45);
 }
 
 .mascot {
-  font-size: 32px;
-  line-height: 1;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: #13162d;
+  background: linear-gradient(150deg, var(--accent-gold), #ff9c32);
+  box-shadow: 0 0 0 2px rgba(255, 206, 58, 0.28), 0 8px 18px rgba(0, 0, 0, 0.42);
+}
+
+.popup-brand-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .popup-title {
-  font-size: 14px;
-  color: #e2b714;
-  text-shadow: 0 0 10px rgba(226, 183, 20, 0.6), 0 0 20px rgba(226, 183, 20, 0.3);
-  line-height: 1.4;
-  letter-spacing: 2px;
+  font-size: 11px;
+  color: var(--accent-gold);
+  line-height: 1.35;
+  letter-spacing: 1.2px;
+  text-shadow: 0 0 10px rgba(255, 206, 58, 0.45);
 }
 
-/* ============================================================
-   Sections
-   ============================================================ */
+.popup-subtitle {
+  font-family: 'VT323', monospace;
+  font-size: 17px;
+  letter-spacing: 1px;
+  color: var(--ink-dim);
+}
 
 .popup-section {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  box-shadow: inset 0 0 0 1px rgba(9, 14, 33, 0.72);
+}
+
+#status-section {
+  border-color: rgba(63, 215, 255, 0.36);
 }
 
 .section-label {
-  font-size: 7px;
-  color: #5a6988;
-  letter-spacing: 2px;
-  text-transform: uppercase;
+  font-size: 8px;
+  color: var(--ink-dim);
+  letter-spacing: 1.4px;
 }
 
-/* ============================================================
-   Video Status
-   ============================================================ */
-
 .video-title {
-  font-size: 8px;
-  color: #00d4ff;
-  text-shadow: 0 0 6px rgba(0, 212, 255, 0.4);
-  line-height: 1.4;
+  font-size: 9px;
+  line-height: 1.45;
+  color: var(--accent-cyan);
+  text-shadow: 0 0 8px rgba(63, 215, 255, 0.34);
   word-break: break-word;
 }
 
 .analysis-status {
-  font-size: 7px;
-  color: #5a6988;
+  font-family: 'VT323', monospace;
+  font-size: 25px;
+  line-height: 1;
+  letter-spacing: 0.6px;
+  color: var(--ink-dim);
 }
 
 .analysis-status.analyzing {
-  color: #e2b714;
-  animation: blink 1s ease-in-out infinite;
+  color: var(--accent-gold);
+  animation: statusPulse 1s ease-in-out infinite;
 }
 
 .analysis-status.ready {
-  color: #00ff41;
-  text-shadow: 0 0 6px rgba(0, 255, 65, 0.5);
+  color: var(--accent-green);
+  text-shadow: 0 0 10px rgba(40, 240, 106, 0.36);
 }
 
 .analysis-status.error {
-  color: #ff6b35;
-  text-shadow: 0 0 6px rgba(255, 107, 53, 0.5);
+  color: var(--accent-orange);
+  text-shadow: 0 0 10px rgba(255, 146, 84, 0.34);
 }
 
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
+#controls-section .analysis-status {
+  font-size: 22px;
 }
-
-/* ============================================================
-   Mode Buttons
-   ============================================================ */
-
-.mode-buttons {
-  display: flex;
-  gap: 6px;
-}
-
-.mode-btn {
-  flex: 1;
-  padding: 10px 6px;
-  font-family: 'Press Start 2P', monospace;
-  font-size: 8px;
-  color: #5a6988;
-  background: #0f0f23;
-  border: 2px solid #2a2a4a;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  text-align: center;
-}
-
-.mode-btn:hover {
-  color: #e2b714;
-  border-color: #e2b714;
-  box-shadow: 0 0 8px rgba(226, 183, 20, 0.3);
-}
-
-.mode-btn.active {
-  color: #1a1a2e;
-  background: #e2b714;
-  border-color: #e2b714;
-  box-shadow: 0 0 12px rgba(226, 183, 20, 0.5), inset 0 0 4px rgba(0, 0, 0, 0.2);
-  text-shadow: none;
-}
-
-.mode-btn:active {
-  transform: scale(0.95);
-}
-
-/* Specific glow colours for active states */
-#btn-auto.active {
-  background: #00ff41;
-  border-color: #00ff41;
-  color: #1a1a2e;
-  box-shadow: 0 0 12px rgba(0, 255, 65, 0.5);
-}
-
-#btn-off.active {
-  background: #ff6b35;
-  border-color: #ff6b35;
-  color: #1a1a2e;
-  box-shadow: 0 0 12px rgba(255, 107, 53, 0.5);
-}
-
-/* ============================================================
-   Stats
-   ============================================================ */
 
 .stat-row {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: baseline;
+  gap: 8px;
   padding: 4px 0;
 }
 
 .stat-label {
-  font-size: 7px;
-  color: #5a6988;
+  font-size: 8px;
+  color: var(--ink-dim);
 }
 
 .stat-value {
-  font-size: 9px;
-  color: #e2b714;
-  text-shadow: 0 0 4px rgba(226, 183, 20, 0.4);
+  font-family: 'VT323', monospace;
+  font-size: 30px;
+  color: var(--accent-gold);
+  text-shadow: 0 0 12px rgba(255, 206, 58, 0.22);
 }
 
 .stat-value.green {
-  color: #00ff41;
-  text-shadow: 0 0 4px rgba(0, 255, 65, 0.4);
+  color: var(--accent-green);
+  text-shadow: 0 0 12px rgba(40, 240, 106, 0.24);
 }
 
-/* ============================================================
-   Footer
-   ============================================================ */
-
 .popup-footer {
-  padding-top: 10px;
-  border-top: 1px solid #2a2a4a;
+  padding: 4px 0 2px;
   display: flex;
   justify-content: center;
 }
 
 .settings-btn {
+  min-width: 164px;
+  padding: 9px 16px;
+  border-radius: 7px;
+  border: 1px solid rgba(63, 215, 255, 0.4);
+  background: linear-gradient(180deg, rgba(16, 23, 50, 0.9), rgba(10, 15, 35, 0.95));
+  color: var(--accent-cyan);
   font-family: 'Press Start 2P', monospace;
-  font-size: 7px;
-  color: #5a6988;
-  background: none;
-  border: 1px solid #2a2a4a;
-  border-radius: 3px;
-  padding: 6px 12px;
+  font-size: 8px;
+  letter-spacing: 1px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
 }
 
 .settings-btn:hover {
-  color: #00d4ff;
-  border-color: #00d4ff;
-  box-shadow: 0 0 6px rgba(0, 212, 255, 0.3);
+  transform: translateY(-1px);
+  border-color: rgba(63, 215, 255, 0.76);
+  box-shadow: 0 8px 18px rgba(63, 215, 255, 0.2);
+}
+
+@keyframes statusPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
 }

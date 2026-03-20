@@ -10,7 +10,7 @@ A Chrome extension that uses AI to detect filler segments (sponsors, "like and s
 2. Waffle Skipper grabs the transcript and sends it to Claude AI for analysis
 3. Each segment is classified as **SUBSTANCE** (the good stuff) or **WAFFLE** (the filler)
 4. A colour-coded timeline appears below the video: green = substance, orange = waffle
-5. Choose your skip mode: AUTO (skips waffle automatically), MANUAL (click to skip), or OFF
+5. Waffle segments are skipped automatically while the video plays
 
 ## Installation
 
@@ -27,13 +27,18 @@ A Chrome extension that uses AI to detect filler segments (sponsors, "like and s
 3. Generate an API key (starts with `sk-ant-`)
 4. Paste it into the Waffle Skipper settings page
 
-## Modes
+## Claude Code Note
 
-| Mode | Behaviour |
-|------|-----------|
-| **AUTO** | Waffle segments are skipped automatically as the video plays |
-| **MANUAL** | Click on orange (waffle) segments in the timeline to skip them |
-| **OFF** | Timeline is hidden, no skipping occurs |
+- This extension needs an **Anthropic API key** from `console.anthropic.com`.
+- A Claude Code login/session by itself is not enough unless you also have API billing enabled.
+- If analysis fails, open `chrome://extensions`, click **Service worker** under Waffle Skipper, and check logs for API errors.
+
+## Controls
+
+- Auto-skip is always on.
+- Click anywhere on the waffle timeline to jump to that point.
+- Press `Tab` to jump to the next substance (green) section.
+- Press `Shift+Tab` to jump to the previous section (green or waffle). If you jump into waffle, auto-skip is temporarily bypassed for that section so you can review it.
 
 ## Tech Stack
 

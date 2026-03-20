@@ -7,33 +7,30 @@
   <title>Waffle Skipper</title>
 </head>
 <body>
-  <!-- CRT scanline overlay for retro vibe -->
   <div class="crt-overlay"></div>
 
   <div class="popup-container">
-    <!-- Header -->
     <header class="popup-header">
-      <span class="mascot">🧇</span>
-      <h1 class="popup-title">WAFFLE<br>SKIPPER</h1>
+      <span class="mascot">WS</span>
+      <div class="popup-brand-copy">
+        <h1 class="popup-title">WAFFLE SKIPPER</h1>
+        <div class="popup-subtitle">RETRO AI VIDEO SKIPPER</div>
+      </div>
     </header>
 
-    <!-- Video Status -->
     <section class="popup-section" id="status-section">
       <div class="video-title" id="video-title">NO VIDEO DETECTED</div>
       <div class="analysis-status" id="analysis-status">Navigate to a YouTube video</div>
     </section>
 
-    <!-- Mode Selector -->
-    <section class="popup-section">
-      <div class="section-label">MODE</div>
-      <div class="mode-buttons">
-        <button class="mode-btn" id="btn-auto" data-mode="AUTO_SKIP">AUTO</button>
-        <button class="mode-btn" id="btn-manual" data-mode="MANUAL">MANUAL</button>
-        <button class="mode-btn" id="btn-off" data-mode="OFF">OFF</button>
-      </div>
+    <section class="popup-section" id="controls-section">
+      <div class="section-label">CONTROLS</div>
+      <div class="analysis-status ready">AUTO SKIP ALWAYS ON</div>
+      <div class="analysis-status">CLICK TIMELINE TO SEEK</div>
+      <div class="analysis-status">TAB: NEXT GREEN SECTION</div>
+      <div class="analysis-status">SHIFT+TAB: PREV SECTION (ANY)</div>
     </section>
 
-    <!-- Stats -->
     <section class="popup-section" id="stats-section">
       <div class="section-label">STATS</div>
       <div class="stat-row">
@@ -54,10 +51,9 @@
       </div>
     </section>
 
-    <!-- Footer -->
     <footer class="popup-footer">
       <button class="settings-btn" id="btn-settings" title="Settings">
-        ⚙ SETTINGS
+        SETTINGS
       </button>
     </footer>
   </div>

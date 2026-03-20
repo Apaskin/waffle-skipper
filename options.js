@@ -30,8 +30,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
-    if (!key.startsWith('sk-ant-')) {
-      showStatus('KEY SHOULD START WITH sk-ant-', 'error');
+    if (!key.startsWith('sk-')) {
+      showStatus('USE ANTHROPIC API KEY (sk-...)', 'error');
       return;
     }
 
