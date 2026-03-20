@@ -1,6 +1,22 @@
 /* content.css - Waffle Skipper YouTube overlay styles */
 
-@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap');
+/* P1-2 fix: fonts bundled locally — no third-party network request on every YouTube page load.
+   This avoids Chrome Web Store review concerns about external resource loading. */
+@font-face {
+  font-family: 'Press Start 2P';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('fonts/PressStart2P.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'VT323';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('fonts/VT323.woff2') format('woff2');
+}
 
 :root {
   --ws-bg-0: #0a0e26;

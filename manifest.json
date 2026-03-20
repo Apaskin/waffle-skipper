@@ -3,7 +3,7 @@
   "name": "Waffle Skipper",
   "version": "0.1.0",
   "description": "Skip the waffle in YouTube videos 🧇",
-  "permissions": ["storage", "activeTab"],
+  "permissions": ["storage"],
   "host_permissions": [
     "https://www.youtube.com/*",
     "https://api.anthropic.com/*"
@@ -38,5 +38,11 @@
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["fonts/PressStart2P.woff2", "fonts/VT323.woff2"],
+      "matches": ["https://www.youtube.com/*"]
+    }
+  ]
 }

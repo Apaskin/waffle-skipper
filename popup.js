@@ -7,6 +7,40 @@ document.addEventListener('DOMContentLoaded', async () => {
     chrome.runtime.openOptionsPage();
   });
 
+  // ============================================================
+  // P1-5: Auto-skip toggle
+  // ============================================================
+  // Load the current toggle state from storage and wire up the button.
+  // Default is true (auto-skip on) so existing users aren't affected.
+
+  const skipToggleBtn = document.getElementById('btn-skip-toggle');
+  const skipToggleState = document.getElementById('skip-toggle-state');
+
+  const { autoSkipEnabled = true } = await chrome.storage.sync.get('autoSkipEnabled');
+  updateToggleUI(autoSkipEnabled);
+
+  skipToggleBtn.addEventListener('click', async () => {
+    // Read latest value (may have changed in another tab) before toggling
+    const { autoSkipEnabled: current = true } = await chrome.storage.sync.get('autoSkipEnabled');
+    const next = !current;
+    await chrome.storage.sync.set({ autoSkipEnabled: next });
+    updateToggleUI(next);
+  });
+
+  function updateToggleUI(enabled) {
+    skipToggleState.textContent = enabled ? 'ON' : 'OFF';
+    skipToggleBtn.setAttribute('aria-pressed', String(enabled));
+    if (enabled) {
+      skipToggleBtn.classList.remove('off');
+    } else {
+      skipToggleBtn.classList.add('off');
+    }
+  }
+
+  // ============================================================
+  // Status + Stats
+  // ============================================================
+
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
@@ -30,6 +64,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     } else if (status.error) {
       const errorMessages = {
         NO_CAPTIONS: 'NO CAPTIONS AVAILABLE',
+        NO_ENGLISH_CAPTIONS: 'ENGLISH CAPTIONS NOT FOUND',
         NO_API_KEY: 'API KEY NOT SET',
         INVALID_API_KEY: 'API KEY INVALID',
         NO_CREDITS: 'NO API CREDITS',
@@ -41,8 +76,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       statusEl.textContent = errorMessages[status.error] || 'ERROR';
       statusEl.className = 'analysis-status error';
     } else if (status.segmentCount > 0) {
-      statusEl.textContent = 'AUTO-SKIP ACTIVE';
-      statusEl.className = 'analysis-status ready';
+      statusEl.textContent = status.autoSkipEnabled ? 'AUTO-SKIP ACTIVE' : 'SKIP PAUSED';
+      statusEl.className = status.autoSkipEnabled ? 'analysis-status ready' : 'analysis-status';
     } else {
       statusEl.textContent = 'WAITING...';
       statusEl.className = 'analysis-status';

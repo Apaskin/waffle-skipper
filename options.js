@@ -13,9 +13,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Load Saved Key
   // ============================================================
 
+  const welcomeSection = document.getElementById('welcome-section');
   const { claudeApiKey } = await chrome.storage.sync.get('claudeApiKey');
   if (claudeApiKey) {
     apiKeyInput.value = claudeApiKey;
+    // P1-3 fix: hide the first-run welcome banner once a key is already configured
+    if (welcomeSection) welcomeSection.style.display = 'none';
   }
 
   // ============================================================
@@ -37,6 +40,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     await chrome.storage.sync.set({ claudeApiKey: key });
     showStatus('KEY SAVED!', 'success');
+    // Hide the first-run welcome banner now that the key is configured
+    if (welcomeSection) welcomeSection.style.display = 'none';
     console.log('[Waffle Skipper] API key saved');
   });
 

@@ -3,8 +3,14 @@
 // and caching. Content scripts can't make cross-origin requests in MV3,
 // so everything goes through here via chrome.runtime.sendMessage.
 
-chrome.runtime.onInstalled.addListener(() => {
-  console.log('[Waffle Skipper] Extension installed');
+chrome.runtime.onInstalled.addListener((details) => {
+  console.log('[Waffle Skipper] Extension installed/updated, reason:', details.reason);
+  // P1-3 fix: open the options page automatically on first install so new users
+  // see the setup instructions and API key field immediately, rather than
+  // encountering the cryptic "WS API KEY NOT SET" error on their first video.
+  if (details.reason === 'install') {
+    chrome.runtime.openOptionsPage();
+  }
 });
 
 const YT_INNERTUBE_API_KEY_CANDIDATES = [
@@ -115,9 +121,18 @@ function extractCaptionTracksFromWatchHtml(pageHtml) {
 
 function selectBestTrack(tracks) {
   if (!Array.isArray(tracks) || tracks.length === 0) return null;
+  // P0-1 fix: do NOT fall back to tracks[0] — returning null for non-English
+  // tracks lets the caller distinguish "no captions" from "captions exist but not English".
   return tracks.find(t => t.languageCode === 'en')
     || tracks.find(t => t.languageCode && t.languageCode.startsWith('en'))
-    || tracks[0];
+    || null;
+}
+
+// Returns true if there are caption tracks available but none are in English.
+// Used to give a more helpful error than the generic "no captions" message.
+function hasOnlyNonEnglishTracks(tracks) {
+  if (!Array.isArray(tracks) || tracks.length === 0) return false;
+  return selectBestTrack(tracks) === null;
 }
 
 async function fetchTimedtextFromTrack(track) {
@@ -222,6 +237,8 @@ async function fetchCaptionTracksViaInnertubePlayer(videoId, apiKey) {
   return [];
 }
 
+// Returns { data, foundNonEnglishOnly } so callers can distinguish
+// "no captions at all" from "captions exist but not in English".
 async function fetchTimedtextViaInnertubeFallback(videoId, pageHtml) {
   const htmlKey = extractInnertubeApiKeyFromWatchHtml(pageHtml || '');
   const keyCandidates = [...new Set([
@@ -229,24 +246,33 @@ async function fetchTimedtextViaInnertubeFallback(videoId, pageHtml) {
     ...YT_INNERTUBE_API_KEY_CANDIDATES
   ].filter(Boolean))];
 
+  let foundNonEnglishOnly = false;
+
   for (const key of keyCandidates) {
     try {
       const tracks = await fetchCaptionTracksViaInnertubePlayer(videoId, key);
       console.log(`[Waffle Skipper] Innertube player returned ${tracks.length} caption tracks (key=${key.slice(0, 8)}...)`);
+
+      if (hasOnlyNonEnglishTracks(tracks)) {
+        // Tracks exist but none are English — flag this for the caller
+        foundNonEnglishOnly = true;
+        continue;
+      }
+
       const track = selectBestTrack(tracks);
       if (!track) continue;
 
       const data = await fetchTimedtextFromTrack(track);
       if (data?.events?.length) {
         console.log(`[Waffle Skipper] Got transcript via Innertube fallback: ${data.events.length} events`);
-        return data;
+        return { data, foundNonEnglishOnly: false };
       }
     } catch (err) {
       console.warn('[Waffle Skipper] Innertube fallback failed for one key:', err.message || err);
     }
   }
 
-  return null;
+  return { data: null, foundNonEnglishOnly };
 }
 
 // ============================================================
@@ -258,8 +284,14 @@ async function fetchTimedtextViaInnertubeFallback(videoId, pageHtml) {
 // 1. Use captionUrl from content script/page context.
 // 2. Parse captionTracks from watch HTML and fetch timedtext directly.
 // 3. Fallback to Innertube player API (ANDROID context) and fetch timedtext.
+// Throws 'NO_ENGLISH_CAPTIONS' if tracks are found but none are in English,
+// or 'NO_CAPTIONS' if no tracks are found at all.
 async function fetchTranscript(videoId, captionUrl) {
   console.log(`[Waffle Skipper] Fetching transcript for ${videoId}`);
+
+  // Track whether we found caption tracks but none in English.
+  // Lets us give a more helpful error message than the generic "no captions".
+  let foundNonEnglishOnly = false;
 
   if (captionUrl) {
     try {
@@ -298,12 +330,18 @@ async function fetchTranscript(videoId, captionUrl) {
       const htmlTracks = extractCaptionTracksFromWatchHtml(pageHtml);
       console.log(`[Waffle Skipper] Found ${htmlTracks.length} caption tracks in page HTML`);
 
-      const htmlTrack = selectBestTrack(htmlTracks);
-      if (htmlTrack) {
-        const htmlData = await fetchTimedtextFromTrack(htmlTrack);
-        if (htmlData?.events?.length) {
-          console.log(`[Waffle Skipper] Got transcript via page HTML fallback: ${htmlData.events.length} events`);
-          return htmlData;
+      if (hasOnlyNonEnglishTracks(htmlTracks)) {
+        // Tracks found but not English — note this and continue to Innertube check
+        foundNonEnglishOnly = true;
+        console.warn('[Waffle Skipper] HTML: caption tracks found but none in English');
+      } else {
+        const htmlTrack = selectBestTrack(htmlTracks);
+        if (htmlTrack) {
+          const htmlData = await fetchTimedtextFromTrack(htmlTrack);
+          if (htmlData?.events?.length) {
+            console.log(`[Waffle Skipper] Got transcript via page HTML fallback: ${htmlData.events.length} events`);
+            return htmlData;
+          }
         }
       }
     } catch (err) {
@@ -312,12 +350,20 @@ async function fetchTranscript(videoId, captionUrl) {
   }
 
   try {
-    const innertubeData = await fetchTimedtextViaInnertubeFallback(videoId, pageHtml);
-    if (innertubeData?.events?.length) {
-      return innertubeData;
+    const innertubeResult = await fetchTimedtextViaInnertubeFallback(videoId, pageHtml);
+    if (innertubeResult.data?.events?.length) {
+      return innertubeResult.data;
+    }
+    if (innertubeResult.foundNonEnglishOnly) {
+      foundNonEnglishOnly = true;
     }
   } catch (err) {
     console.warn('[Waffle Skipper] Innertube transcript fallback failed:', err.message || err);
+  }
+
+  if (foundNonEnglishOnly) {
+    console.warn('[Waffle Skipper] Only non-English captions available — cannot classify');
+    throw new Error('NO_ENGLISH_CAPTIONS');
   }
 
   console.error('[Waffle Skipper] All transcript fetch methods failed - no captions available');
@@ -774,33 +820,91 @@ function formatTime(seconds) {
 // Caching
 // ============================================================
 
-const ANALYSIS_CACHE_VERSION = 2;
+// P1-6: Rate limiting — minimum interval between Claude API calls.
+// Prevents rapid video-switching from firing many expensive API requests.
+// Cache hits are NOT rate-limited (they return instantly before this is checked).
+const MIN_API_CALL_INTERVAL_MS = 3000; // 3 seconds
+let lastApiCallTime = 0;
 
-// Check if we already have analysis cached for this video
+const ANALYSIS_CACHE_VERSION = 2;
+// P0-2 fix: cache TTL and size limits to prevent chrome.storage.local filling up.
+// chrome.storage.local defaults to 10MB — we keep well under that.
+const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const CACHE_MAX_ENTRIES = 200;                   // Max stored video analyses
+const CACHE_KEY_PREFIX = 'analysis_';
+
+// Check if we already have analysis cached for this video.
+// Returns null on cache miss OR if the entry has expired (> 30 days old).
 async function getCachedAnalysis(videoId) {
   return new Promise((resolve) => {
-    chrome.storage.local.get(`analysis_${videoId}`, (result) => {
-      const cached = result[`analysis_${videoId}`];
+    chrome.storage.local.get(`${CACHE_KEY_PREFIX}${videoId}`, (result) => {
+      const cached = result[`${CACHE_KEY_PREFIX}${videoId}`];
       if (cached && cached.segments && cached.version === ANALYSIS_CACHE_VERSION) {
-        console.log(`[Waffle Skipper] Cache hit for ${videoId}`);
-        resolve(cached.segments);
-      } else {
-        resolve(null);
+        const age = Date.now() - (cached.timestamp || 0);
+        if (age < CACHE_TTL_MS) {
+          console.log(`[Waffle Skipper] Cache hit for ${videoId}`);
+          resolve(cached.segments);
+          return;
+        }
+        // Entry expired — remove it and force a fresh analysis
+        chrome.storage.local.remove(`${CACHE_KEY_PREFIX}${videoId}`);
+        console.log(`[Waffle Skipper] Cache expired for ${videoId}, re-analysing`);
       }
+      resolve(null);
     });
   });
 }
 
-// Save analysis results to cache
+// Save analysis results to cache, evicting stale entries first.
 async function cacheAnalysis(videoId, segments) {
+  await evictStaleCacheEntries();
   return new Promise((resolve) => {
     chrome.storage.local.set({
-      [`analysis_${videoId}`]: {
+      [`${CACHE_KEY_PREFIX}${videoId}`]: {
         segments,
         version: ANALYSIS_CACHE_VERSION,
         timestamp: Date.now()
       }
     }, resolve);
+  });
+}
+
+// Remove expired entries, then evict oldest entries if count still exceeds
+// CACHE_MAX_ENTRIES. Called before every cache write to proactively manage size.
+async function evictStaleCacheEntries() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(null, (allData) => {
+      const cacheKeys = Object.keys(allData).filter(k => k.startsWith(CACHE_KEY_PREFIX));
+      const now = Date.now();
+      const toRemove = [];
+
+      // Pass 1: collect all expired entries
+      for (const key of cacheKeys) {
+        const age = now - (allData[key]?.timestamp || 0);
+        if (age >= CACHE_TTL_MS) {
+          toRemove.push(key);
+        }
+      }
+
+      // Pass 2: if still over the limit after removing expired, evict oldest first
+      const remaining = cacheKeys.filter(k => !toRemove.includes(k));
+      if (remaining.length >= CACHE_MAX_ENTRIES) {
+        const sorted = remaining
+          .map(k => ({ key: k, ts: allData[k]?.timestamp || 0 }))
+          .sort((a, b) => a.ts - b.ts); // oldest first
+        const excess = sorted.length - (CACHE_MAX_ENTRIES - 20); // keep 20-slot buffer
+        for (let i = 0; i < excess && i < sorted.length; i++) {
+          toRemove.push(sorted[i].key);
+        }
+      }
+
+      if (toRemove.length > 0) {
+        console.log(`[Waffle Skipper] Evicting ${toRemove.length} stale/excess cache entries`);
+        chrome.storage.local.remove(toRemove, resolve);
+      } else {
+        resolve();
+      }
+    });
   });
 }
 
@@ -870,9 +974,19 @@ async function handleAnalyzeVideo(videoId, captionUrl, transcriptData) {
     return { error: 'NO_CAPTIONS' };
   }
 
+  // P1-6: Enforce minimum interval between API calls.
+  // Cache hits (handled above) bypass this entirely.
+  const timeSinceLastCall = Date.now() - lastApiCallTime;
+  if (timeSinceLastCall < MIN_API_CALL_INTERVAL_MS) {
+    const delay = MIN_API_CALL_INTERVAL_MS - timeSinceLastCall;
+    console.log(`[Waffle Skipper] Rate limiting: waiting ${delay}ms before API call`);
+    await new Promise(r => setTimeout(r, delay));
+  }
+
   // Classify via Claude
   let segments;
   try {
+    lastApiCallTime = Date.now();
     segments = await classifyChunks(chunks, claudeApiKey);
   } catch (err) {
     console.error('[Waffle Skipper] Classification failed:', err.message || err);

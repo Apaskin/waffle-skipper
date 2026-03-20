@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Waffle Skipper — Privacy Policy</title>
+  <style>
+    body {
+      font-family: Georgia, serif;
+      max-width: 680px;
+      margin: 40px auto;
+      padding: 0 20px;
+      color: #222;
+      line-height: 1.7;
+    }
+    h1 { font-size: 1.6em; margin-bottom: 4px; }
+    h2 { font-size: 1.1em; margin-top: 2em; }
+    .meta { color: #666; font-size: 0.9em; margin-bottom: 2em; }
+    a { color: #0066cc; }
+  </style>
+</head>
+<body>
+  <h1>Waffle Skipper — Privacy Policy</h1>
+  <p class="meta">Last updated: March 2026 &nbsp;|&nbsp; Version 0.1.0</p>
+
+  <h2>What this extension does</h2>
+  <p>
+    Waffle Skipper is a Chrome extension that uses AI to classify segments of YouTube
+    video transcripts as "substance" or "waffle" (filler), then automatically skips
+    the filler segments while you watch.
+  </p>
+
+  <h2>Data we collect</h2>
+  <p>
+    <strong>We collect nothing.</strong> Waffle Skipper has no servers, no accounts,
+    no analytics, and no telemetry. All processing happens locally in your browser.
+  </p>
+
+  <h2>Data stored on your device</h2>
+  <p>The extension stores the following data <em>locally in your browser only</em>:</p>
+  <ul>
+    <li>
+      <strong>Your Anthropic API key</strong> — saved to Chrome's sync storage
+      (<code>chrome.storage.sync</code>) so it persists across Chrome profiles if
+      you use Chrome Sync. It is never transmitted anywhere except to the Anthropic
+      API endpoint when analysing a video.
+    </li>
+    <li>
+      <strong>Video analysis cache</strong> — results of transcript classifications
+      are cached locally in <code>chrome.storage.local</code> to avoid re-processing
+      videos you've already watched. Cache entries expire after 30 days and are
+      automatically cleaned up.
+    </li>
+  </ul>
+
+  <h2>Data sent to third parties</h2>
+  <p>
+    When you navigate to a YouTube video, the extension fetches the video's English
+    transcript (captions) and sends it to the
+    <a href="https://www.anthropic.com" target="_blank">Anthropic API</a>
+    for classification. Specifically:
+  </p>
+  <ul>
+    <li>
+      The transcript text (not your identity, not the video URL, not any personal
+      information) is sent to <code>https://api.anthropic.com/v1/messages</code>
+      using your own API key.
+    </li>
+    <li>
+      Anthropic's data usage policy applies to this request. See
+      <a href="https://www.anthropic.com/privacy" target="_blank">anthropic.com/privacy</a>.
+    </li>
+    <li>
+      No other data is sent to Anthropic or any other party.
+    </li>
+  </ul>
+
+  <h2>YouTube interactions</h2>
+  <p>
+    The extension fetches YouTube video transcripts using YouTube's publicly available
+    caption API. It does not log in to YouTube on your behalf, does not interact with
+    your YouTube account, and does not store or transmit watch history.
+  </p>
+
+  <h2>Permissions used</h2>
+  <ul>
+    <li><strong>storage</strong> — to save your API key and cache analysis results locally.</li>
+    <li><strong>youtube.com host permission</strong> — to fetch video transcripts.</li>
+    <li><strong>api.anthropic.com host permission</strong> — to call the Claude AI API for classification.</li>
+  </ul>
+
+  <h2>Children's privacy</h2>
+  <p>
+    This extension is not directed at children under 13. We do not knowingly collect
+    any personal information from anyone.
+  </p>
+
+  <h2>Changes to this policy</h2>
+  <p>
+    If we change what data is collected or how it is used, we will update this page
+    and increment the version number above.
+  </p>
+
+  <h2>Contact</h2>
+  <p>
+    For questions about this privacy policy, open an issue on the
+    <a href="https://github.com/Apaskin/waffle-skipper" target="_blank">GitHub repository</a>.
+  </p>
+</body>
+</html>

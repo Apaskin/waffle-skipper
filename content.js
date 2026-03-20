@@ -3,7 +3,7 @@
 // - Video ID detection and YouTube SPA navigation
 // - Receiving caption track URLs from page-extractor.js (MAIN world)
 // - Timeline overlay rendering (green=substance, orange=waffle)
-// - Always-on auto-skip logic
+// - Auto-skip logic (toggleable via popup)
 // - Floating scoreboard with live counters
 // - Communication with background service worker for Claude API calls
 
@@ -18,6 +18,10 @@
   let segments = [];                // Classified segments from Claude
   let isAnalyzing = false;         // Whether analysis is in progress
   let analysisError = null;        // Error message if analysis failed
+
+  // P1-5: Auto-skip toggle — loaded from chrome.storage.sync, defaults to true.
+  // Updated live when the user toggles in the popup via storage change listener.
+  let autoSkipEnabled = true;
 
   // Skip stats for this session
   let wafflesZapped = 0;
@@ -47,6 +51,21 @@
 
   console.log('[Waffle Skipper] Content script loaded');
 
+  // Load the persisted auto-skip preference on startup
+  chrome.storage.sync.get('autoSkipEnabled', (result) => {
+    // Default to true if the key hasn't been set yet
+    autoSkipEnabled = result.autoSkipEnabled !== false;
+    updateScoreboardSkipState();
+  });
+
+  // Listen for live toggle changes from the popup (takes effect immediately)
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'sync' && 'autoSkipEnabled' in changes) {
+      autoSkipEnabled = changes.autoSkipEnabled.newValue !== false;
+      updateScoreboardSkipState();
+    }
+  });
+
   // ============================================================
   // Initialization
   // ============================================================
@@ -68,6 +87,10 @@
   // The extractor intercepts YouTube's own XHR/fetch requests to the
   // timedtext API and captures the transcript response.
   window.addEventListener('message', (event) => {
+    // P0-3 fix: verify origin before trusting message content.
+    // Any page script could post a spoofed 'waffle-skipper-extractor' message;
+    // the origin check ensures we only accept messages from the YouTube page itself.
+    if (event.origin !== 'https://www.youtube.com') return;
     if (event.data && event.data.source === 'waffle-skipper-extractor') {
       const hasTranscript = event.data.transcript && event.data.transcript.events;
       console.log('[Waffle Skipper] Received from extractor:',
@@ -107,8 +130,10 @@
 
       captionResolve = resolve;
 
-      // Ask the page extractor if it has captured data for this video
-      window.postMessage({ source: 'waffle-skipper-request', videoId: videoId }, '*');
+      // Ask the page extractor if it has captured data for this video.
+      // P1-7 fix: target 'https://www.youtube.com' instead of '*' so other frames
+      // (e.g. ad iframes) can't intercept transcript request messages.
+      window.postMessage({ source: 'waffle-skipper-request', videoId: videoId }, 'https://www.youtube.com');
 
       // Timeout after 12 seconds
       setTimeout(() => {
@@ -395,7 +420,7 @@
         <span class="waffle-chip">WS</span>
         <div class="waffle-head-copy">
           <span class="waffle-head-title">WAFFLE SKIPPER</span>
-          <span class="waffle-head-sub">AUTO SKIP ACTIVE</span>
+          <span class="waffle-head-sub" id="waffle-skip-status">${autoSkipEnabled ? 'AUTO SKIP ACTIVE' : 'AUTO SKIP OFF'}</span>
         </div>
       </div>
       <div class="waffle-scoreboard-hint">TAB NEXT GREEN - SHIFT+TAB PREV</div>
@@ -435,6 +460,14 @@
     }
   }
 
+  // P1-5: Update the scoreboard subtitle when the auto-skip toggle changes
+  function updateScoreboardSkipState() {
+    const statusEl = document.getElementById('waffle-skip-status');
+    if (statusEl) {
+      statusEl.textContent = autoSkipEnabled ? 'AUTO SKIP ACTIVE' : 'AUTO SKIP OFF';
+    }
+  }
+
   // ============================================================
   // Skip Behavior
   // ============================================================
@@ -462,6 +495,8 @@
   }
 
   function handleTimeUpdate(video) {
+    // P1-5: Respect the auto-skip toggle — do nothing if user has disabled it
+    if (!autoSkipEnabled) return;
     if (skipCooldown) return;
 
     const currentTime = video.currentTime;
@@ -592,6 +627,7 @@
 
     const messages = {
       'NO_CAPTIONS': 'WS NO CAPTIONS AVAILABLE',
+      'NO_ENGLISH_CAPTIONS': 'WS ENGLISH CAPTIONS NOT FOUND',
       'NO_API_KEY': 'WS API KEY NOT SET - OPEN SETTINGS',
       'INVALID_API_KEY': 'WS API KEY INVALID - CHECK SETTINGS',
       'NO_CREDITS': 'WS NO API CREDITS - CHECK BILLING',
@@ -654,7 +690,7 @@
       totalWaffleTimeSec: totalWaffleTime,
       wafflesZapped,
       timeSavedSec,
-      autoSkipEnabled: true,
+      autoSkipEnabled,
       videoDuration: video?.duration || 0,
     };
   }

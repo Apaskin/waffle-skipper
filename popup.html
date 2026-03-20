@@ -25,7 +25,12 @@
 
     <section class="popup-section" id="controls-section">
       <div class="section-label">CONTROLS</div>
-      <div class="analysis-status ready">AUTO SKIP ALWAYS ON</div>
+      <div class="skip-toggle-row">
+        <span class="skip-toggle-label">AUTO SKIP</span>
+        <button class="skip-toggle-btn" id="btn-skip-toggle" aria-pressed="true" title="Toggle auto-skip on/off">
+          <span id="skip-toggle-state">ON</span>
+        </button>
+      </div>
       <div class="analysis-status">CLICK TIMELINE TO SEEK</div>
       <div class="analysis-status">TAB: NEXT GREEN SECTION</div>
       <div class="analysis-status">SHIFT+TAB: PREV SECTION (ANY)</div>

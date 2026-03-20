@@ -82,6 +82,15 @@
     var videoId = extractVideoIdFromUrl(url);
     if (!videoId) return;
 
+    // P0-1 fix: skip non-English captions — sending non-English text to Claude's
+    // English-only classifier produces garbage results. Only filter when we can
+    // positively identify a non-English lang= parameter; unknown language passes through.
+    var lang = extractLanguageFromTimedtextUrl(url);
+    if (lang !== null && lang !== 'en' && lang.indexOf('en') !== 0) {
+      console.log('[Waffle Skipper Extractor] Skipping non-English caption track, lang=' + lang);
+      return;
+    }
+
     // Already captured this video — skip
     if (capturedTranscripts[videoId]) return;
 
@@ -112,9 +121,22 @@
 
   function selectBestTrack(tracks) {
     if (!Array.isArray(tracks) || tracks.length === 0) return null;
+    // P0-1 fix: do NOT fall back to tracks[0] — caller must decide what to do
+    // when tracks exist but none are in English.
     return tracks.find(function (t) { return t && t.languageCode === 'en'; })
       || tracks.find(function (t) { return t && t.languageCode && t.languageCode.indexOf('en') === 0; })
-      || tracks[0];
+      || null;
+  }
+
+  // Extract the 'lang' parameter from a YouTube timedtext URL.
+  // Returns null if the parameter is absent (unknown language — don't block).
+  function extractLanguageFromTimedtextUrl(url) {
+    try {
+      var match = url.match(/[?&]lang=([^&]+)/i);
+      return match ? match[1].toLowerCase() : null;
+    } catch (e) {
+      return null;
+    }
   }
 
   function dedupeTracks(tracks) {
@@ -465,13 +487,15 @@
   }
 
   function postTranscript(videoId, data, method) {
+    // P1-7 fix: target specific origin instead of '*' to prevent other frames
+    // (e.g. ad iframes) from intercepting transcript data.
     window.postMessage({
       source: 'waffle-skipper-extractor',
       transcript: data,
       tracks: [],
       videoId: videoId,
       method: method
-    }, '*');
+    }, 'https://www.youtube.com');
   }
 
   function parseXmlTranscript(xmlText) {
@@ -540,7 +564,7 @@
               tracks: [],
               videoId: vid,
               error: 'Not captured yet'
-            }, '*');
+            }, 'https://www.youtube.com'); // P1-7: specific target origin
           }
         });
       }
