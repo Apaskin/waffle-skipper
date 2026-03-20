@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="options.css">
-  <title>Waffle Skipper — Settings</title>
+  <title>Woffle — Settings</title>
 </head>
 <body>
   <!-- CRT scanline overlay -->
@@ -21,41 +21,52 @@
       </div>
     </header>
 
-    <!-- First-run welcome banner (hidden once key is saved) -->
-    <section class="options-section welcome-banner" id="welcome-section">
-      <p class="section-title green-text">🧇 WELCOME, PLAYER!</p>
+    <!-- ============ AUTH SECTION — shown when NOT logged in ============ -->
+    <section class="options-section" id="auth-section">
+      <p class="section-title green-text">🧇 SIGN IN TO START ZAPPING</p>
       <div class="welcome-steps">
-        <p>To start zapping waffle you need an access code (API key):</p>
-        <ol>
-          <li>Go to <strong>console.anthropic.com</strong></li>
-          <li>Create an account + add a small credit balance</li>
-          <li>Generate an API key (starts with <strong>sk-ant-</strong>)</li>
-          <li>Paste it below and hit SAVE</li>
-        </ol>
-        <p>Analysis costs ~$0.001 per video. Your key is stored <strong>locally only</strong>.</p>
+        <p>Create a free account to get 10 video scans per month. Upgrade anytime for more.</p>
       </div>
-    </section>
-
-    <!-- API Key Section -->
-    <section class="options-section">
-      <label class="section-title" for="api-key">ENTER ACCESS CODE</label>
-      <p class="section-hint">Your Anthropic API key — stored locally, never shared</p>
       <div class="terminal-box">
-        <span class="terminal-prompt">&gt;</span>
-        <input
-          type="password"
-          id="api-key"
-          class="terminal-input"
-          placeholder="sk-ant-..."
-          autocomplete="off"
-          spellcheck="false"
-        >
+        <span class="terminal-prompt">@</span>
+        <input type="email" id="auth-email" class="terminal-input" placeholder="email@example.com" autocomplete="email" spellcheck="false">
+      </div>
+      <div class="terminal-box">
+        <span class="terminal-prompt">*</span>
+        <input type="password" id="auth-password" class="terminal-input" placeholder="password" autocomplete="current-password">
       </div>
       <div class="button-row">
-        <button id="btn-save" class="btn-gold">SAVE KEY</button>
-        <button id="btn-toggle-visibility" class="btn-dim" title="Show/hide key">👁</button>
+        <button id="btn-login" class="btn-gold">SIGN IN</button>
+        <button id="btn-signup" class="btn-dim-wide">SIGN UP</button>
       </div>
-      <div id="status-message" class="status-message"></div>
+      <div id="auth-status" class="status-message"></div>
+    </section>
+
+    <!-- ============ ACCOUNT SECTION — shown when logged in ============ -->
+    <section class="options-section" id="account-section" style="display:none">
+      <p class="section-title">ACCOUNT</p>
+      <div class="account-info">
+        <div class="account-row">
+          <span class="account-label">EMAIL</span>
+          <span class="account-value" id="account-email">--</span>
+        </div>
+        <div class="account-row">
+          <span class="account-label">TIER</span>
+          <span class="account-value" id="account-tier">FREE</span>
+        </div>
+        <div class="account-row">
+          <span class="account-label">CREDITS</span>
+          <span class="account-value" id="account-credits">-- / --</span>
+        </div>
+        <div class="account-row">
+          <span class="account-label">RESETS</span>
+          <span class="account-value" id="account-reset">--</span>
+        </div>
+      </div>
+      <div class="button-row">
+        <button id="btn-manage-subscription" class="btn-gold">MANAGE SUBSCRIPTION</button>
+        <button id="btn-logout" class="btn-dim-wide">LOG OUT</button>
+      </div>
     </section>
 
     <!-- Cache Section -->
@@ -63,11 +74,12 @@
       <label class="section-title">CACHE DATA</label>
       <p class="section-hint">Clear locally cached video analyses</p>
       <button id="btn-clear-cache" class="btn-orange">CLEAR CACHE</button>
+      <div id="cache-status" class="status-message"></div>
     </section>
 
     <!-- About -->
     <footer class="options-footer">
-      <p class="version-text">V0.1.0 — SKIP THE FLUFF. GET THE STUFF.</p>
+      <p class="version-text">V0.2.0 — SKIP THE FLUFF. GET THE STUFF.</p>
     </footer>
 
   </div>

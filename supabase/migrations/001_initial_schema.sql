@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS users (
   stripe_customer_id    text,
   stripe_subscription_id text,
   auto_analyse_channels jsonb NOT NULL DEFAULT '[]'::jsonb,
+  tier_updated_at       timestamptz NOT NULL DEFAULT now(),
   created_at            timestamptz NOT NULL DEFAULT now(),
   updated_at            timestamptz NOT NULL DEFAULT now()
 );
@@ -68,12 +69,12 @@ CREATE TABLE IF NOT EXISTS analyses (
   access_count           int NOT NULL DEFAULT 1
 );
 
--- Unique on video_id — the primary lookup. Only one analysis per video
--- (per prompt_version — see the WHERE clause on cache lookups in code).
-CREATE UNIQUE INDEX IF NOT EXISTS idx_analyses_video_id ON analyses (video_id);
-
--- Composite index for cache-hit queries: video_id + prompt_version
-CREATE INDEX IF NOT EXISTS idx_analyses_cache_lookup ON analyses (video_id, prompt_version);
+-- Unique on (video_id, prompt_version) — one analysis per video per prompt version.
+-- When we bump prompt_version, old analyses stay (could be useful for comparison)
+-- and new ones are created alongside them. The cache lookup always filters by
+-- the current prompt_version so stale entries are invisible to the worker.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_analyses_video_prompt
+  ON analyses (video_id, prompt_version);
 
 -- ============================================================
 -- 4. Credit transactions (audit log)
@@ -155,3 +156,45 @@ DROP TRIGGER IF EXISTS set_updated_at ON users;
 CREATE TRIGGER set_updated_at
   BEFORE UPDATE ON users
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+-- ============================================================
+-- 8. Atomic credit deduction RPC
+-- ============================================================
+-- Single atomic UPDATE that decrements credits_remaining by 1
+-- only if the user still has credits. Returns the new balance.
+-- The WHERE credits_remaining > 0 guard prevents over-deduction
+-- even under concurrent requests — the row-level lock means only
+-- one transaction wins the decrement; the other sees 0 and gets
+-- no rows back.
+
+CREATE OR REPLACE FUNCTION deduct_credit(p_user_id uuid)
+RETURNS int AS $$
+DECLARE
+  new_balance int;
+BEGIN
+  UPDATE users
+  SET credits_remaining = credits_remaining - 1
+  WHERE id = p_user_id AND credits_remaining > 0
+  RETURNING credits_remaining INTO new_balance;
+
+  IF NOT FOUND THEN
+    RETURN -1; -- signals "no credits available"
+  END IF;
+
+  RETURN new_balance;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ============================================================
+-- 9. Atomic access_count increment RPC
+-- ============================================================
+-- Fire-and-forget counter bump — avoids read-then-write race.
+
+CREATE OR REPLACE FUNCTION increment_access_count(p_analysis_id uuid)
+RETURNS void AS $$
+BEGIN
+  UPDATE analyses
+  SET access_count = access_count + 1
+  WHERE id = p_analysis_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;

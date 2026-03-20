@@ -4,8 +4,8 @@
 // - Receiving caption track URLs from page-extractor.js (MAIN world)
 // - Timeline overlay rendering (green=substance, orange=waffle)
 // - Auto-skip logic (toggleable via popup)
-// - Floating scoreboard with live counters
-// - Communication with background service worker for Claude API calls
+// - Manual SCAN button near YouTube controls
+// - Communication with background service worker for backend API calls
 
 (function () {
   'use strict';
@@ -32,9 +32,14 @@
   // When user manually jumps backward into waffle, temporarily bypass auto-skip
   let bypassAutoSkipUntil = 0;
 
+  // Intensity threshold — determines what confidence score counts as "waffle".
+  // Maps to the three intensity levels defined in CLAUDE.md:
+  //   light (80+), medium (50+, default), heavy (25+)
+  let waffleThreshold = 50; // Default: medium — waffle_confidence >= 50 is waffle
+
   // References to injected DOM elements (for cleanup)
   let timelineEl = null;
-  let scoreboardEl = null;
+  let scanButtonEl = null;
   let tooltipEl = null;
 
   // Reference to video timeupdate listener (for cleanup)
@@ -53,16 +58,13 @@
 
   // Load the persisted auto-skip preference on startup
   chrome.storage.sync.get('autoSkipEnabled', (result) => {
-    // Default to true if the key hasn't been set yet
     autoSkipEnabled = result.autoSkipEnabled !== false;
-    updateScoreboardSkipState();
   });
 
   // Listen for live toggle changes from the popup (takes effect immediately)
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'sync' && 'autoSkipEnabled' in changes) {
       autoSkipEnabled = changes.autoSkipEnabled.newValue !== false;
-      updateScoreboardSkipState();
     }
   });
 
@@ -188,12 +190,13 @@
     timeSavedSec = 0;
     bypassAutoSkipUntil = 0;
 
-    // Start analysis with a short delay — the XHR intercept is already capturing
-    // YouTube's caption requests passively, so we just need to give YouTube
-    // time to start fetching captions for the player
+    // Inject the scan button near the player controls
+    // We delay slightly to give YouTube's DOM time to settle after SPA navigation
     setTimeout(() => {
       if (videoId === currentVideoId) {
-        analyzeVideo(videoId);
+        injectScanButton();
+        // The user clicks the SCAN button to trigger analysis (manual trigger).
+        // Smart auto-analyse (if enabled) happens separately based on watch time.
       }
     }, 1000);
   }
@@ -272,7 +275,7 @@
 
       // Render the timeline and set up skip logic
       renderTimeline();
-      renderScoreboard();
+      updateScanButtonState();
       enableAutoSkip();
 
     } catch (err) {
@@ -316,10 +319,16 @@
       console.log(`[Waffle Skipper] Timeline seek: ${formatTime(targetTime)}`);
     });
 
-    // Create a segment div for each classified chunk
+    // Create a segment div for each classified chunk.
+    // The backend returns waffle_confidence (0-100) per segment. We apply
+    // the user's intensity threshold to classify each as substance or waffle.
     for (const segment of segments) {
+      const isWaffle = (segment.waffle_confidence || 0) >= waffleThreshold;
+      const segType = isWaffle ? 'waffle' : 'substance';
+      // Backwards compat: also check legacy segment.type field
+      const effectiveType = segment.waffle_confidence !== undefined ? segType : (segment.type || 'substance');
       const segEl = document.createElement('div');
-      segEl.className = `waffle-segment ${segment.type}`;
+      segEl.className = `waffle-segment ${effectiveType}`;
 
       // Position as percentage of total duration
       const leftPct = (segment.start / duration) * 100;
@@ -404,69 +413,50 @@
   }
 
   // ============================================================
-  // Floating Scoreboard
+  // Scan Button — injected near YouTube's player controls
   // ============================================================
+  // Small 🧇 button the user clicks to manually trigger analysis.
+  // Pulses while scanning, dims after analysis completes.
 
-  function renderScoreboard() {
-    removeElement('#waffle-scoreboard');
+  function injectScanButton() {
+    removeElement('#woffle-scan-btn');
 
-    scoreboardEl = document.createElement('div');
-    scoreboardEl.id = 'waffle-scoreboard';
+    scanButtonEl = document.createElement('button');
+    scanButtonEl.id = 'woffle-scan-btn';
+    scanButtonEl.textContent = '🧇';
+    scanButtonEl.title = 'Scan for waffle';
+    scanButtonEl.addEventListener('click', () => {
+      if (!currentVideoId || isAnalyzing) return;
+      analyzeVideo(currentVideoId);
+    });
 
-    const waffleSegments = segments.filter(s => s.type === 'waffle');
-
-    scoreboardEl.innerHTML = `
-      <div class="waffle-scoreboard-head">
-        <span class="waffle-chip">🧇</span>
-        <div class="waffle-head-copy">
-          <span class="waffle-head-title">WOFFLE</span>
-          <span class="waffle-head-sub" id="waffle-skip-status">${autoSkipEnabled ? 'AUTO SKIP ⚡' : 'SKIP OFF'}</span>
-        </div>
-      </div>
-      <div class="waffle-scoreboard-hint">TAB → NEXT · SHIFT+TAB → PREV</div>
-      <div class="waffle-scoreboard-stats">
-        <div class="waffle-scoreboard-line">
-          <span class="waffle-label">FOUND</span>
-          <span class="waffle-value" id="waffle-found-count">${waffleSegments.length}</span>
-        </div>
-        <div class="waffle-scoreboard-line">
-          <span class="waffle-label">ZAPPED</span>
-          <span class="waffle-value" id="waffle-zapped-count">${wafflesZapped}</span>
-        </div>
-        <div class="waffle-scoreboard-line">
-          <span class="waffle-label">SAVED</span>
-          <span class="waffle-value waffle-value-good" id="waffle-time-saved">${formatTimeSaved(timeSavedSec)}</span>
-        </div>
-      </div>
-    `;
-
-    const player = document.querySelector('#movie_player');
-    if (player) {
-      player.appendChild(scoreboardEl);
+    // Inject near YouTube's subscribe button area or below the player
+    const belowPlayer = document.querySelector('#below') || document.querySelector('#info');
+    if (belowPlayer) {
+      belowPlayer.insertBefore(scanButtonEl, belowPlayer.firstChild);
+    } else {
+      const player = document.querySelector('#movie_player');
+      if (player) player.appendChild(scanButtonEl);
     }
   }
 
-  function updateScoreboard() {
-    const zappedEl = document.getElementById('waffle-zapped-count');
-    const savedEl = document.getElementById('waffle-time-saved');
-    if (zappedEl) {
-      zappedEl.textContent = wafflesZapped;
-      zappedEl.classList.remove('waffle-pulse');
-      void zappedEl.offsetWidth; // Force reflow to restart animation
-      zappedEl.classList.add('waffle-pulse');
-    }
-    if (savedEl) {
-      savedEl.textContent = formatTimeSaved(timeSavedSec);
+  function updateScanButtonState() {
+    if (!scanButtonEl) return;
+    if (isAnalyzing) {
+      scanButtonEl.classList.add('scanning');
+      scanButtonEl.title = 'Scanning...';
+    } else if (segments.length > 0) {
+      scanButtonEl.classList.add('done');
+      scanButtonEl.classList.remove('scanning');
+      scanButtonEl.title = 'Analysis complete';
+    } else {
+      scanButtonEl.classList.remove('scanning', 'done');
+      scanButtonEl.title = 'Scan for waffle';
     }
   }
 
-  // Update the scoreboard subtitle when the auto-skip toggle changes
-  function updateScoreboardSkipState() {
-    const statusEl = document.getElementById('waffle-skip-status');
-    if (statusEl) {
-      statusEl.textContent = autoSkipEnabled ? 'AUTO SKIP ⚡' : 'SKIP OFF';
-    }
-  }
+  // NO scoreboard — per CLAUDE.md "NO Floating HUD".
+  // Stats live in the popup only. The timeline bar IS the entire in-video UI.
 
   // Brief 🧇 emoji pop animation overlaid on the video when waffle is auto-skipped.
   // The element self-destructs after the CSS animation completes (0.6s).
@@ -492,10 +482,8 @@
       timeupdateHandler = null;
     }
 
-    // Keep UI visible
+    // Keep timeline visible
     if (timelineEl) timelineEl.style.display = '';
-    if (scoreboardEl) scoreboardEl.style.display = '';
-    updateScoreboard();
 
     if (segments.length > 0) {
       const video = document.querySelector('video');
@@ -520,7 +508,12 @@
     }
 
     for (const segment of segments) {
-      if (segment.type === 'waffle' &&
+      // Use confidence threshold to decide if this segment is waffle.
+      // Backwards compat: check legacy segment.type too.
+      const isWaffle = segment.waffle_confidence !== undefined
+        ? (segment.waffle_confidence >= waffleThreshold)
+        : (segment.type === 'waffle');
+      if (isWaffle &&
           currentTime >= segment.start &&
           currentTime < segment.end - 0.5) {
         console.log(`[Waffle Skipper] AUTO SKIP: ${formatTime(segment.start)} -> ${formatTime(segment.end)}`);
@@ -528,7 +521,6 @@
 
         wafflesZapped++;
         timeSavedSec += (segment.end - currentTime);
-        updateScoreboard();
         showSkipFlash(); // Brief 🧇 pop animation on the video player
 
         skipCooldown = true;
@@ -628,6 +620,7 @@
     loadingEl.innerHTML = '<span class="waffle-loading-text">🧇 SCANNING FOR WAFFLE...</span>';
 
     injectTimeline(loadingEl);
+    updateScanButtonState();
   }
 
   function showError(errorCode) {
@@ -689,7 +682,12 @@
       || document.title.replace(' - YouTube', '')
       || 'Unknown';
 
-    const waffleSegments = segments.filter(s => s.type === 'waffle');
+    // Apply the current intensity threshold to classify segments
+    const waffleSegments = segments.filter(s =>
+      s.waffle_confidence !== undefined
+        ? s.waffle_confidence >= waffleThreshold
+        : s.type === 'waffle'
+    );
     const totalWaffleTime = waffleSegments.reduce((sum, s) => sum + (s.end - s.start), 0);
 
     return {
@@ -699,7 +697,7 @@
       error: analysisError,
       segmentCount: segments.length,
       waffleCount: waffleSegments.length,
-      substanceCount: segments.filter(s => s.type === 'substance').length,
+      substanceCount: segments.length - waffleSegments.length,
       totalWaffleTimeSec: totalWaffleTime,
       wafflesZapped,
       timeSavedSec,
@@ -714,10 +712,11 @@
 
   function cleanup() {
     removeElement('#waffle-timeline');
-    removeElement('#waffle-scoreboard');
+    removeElement('#woffle-scan-btn');
     removeElement('#waffle-loading');
     removeElement('#waffle-error');
     hideTooltip();
+    scanButtonEl = null;
 
     if (timeupdateHandler) {
       const video = document.querySelector('video');

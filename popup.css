@@ -423,6 +423,108 @@ body {
 }
 
 /* ============================================================
+   Credits section — tier badge + credit counter + upgrade CTA
+   ============================================================ */
+#credits-section {
+  border-color: rgba(226, 183, 20, 0.15);
+}
+
+.credits-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tier-badge {
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 6px;
+  letter-spacing: 1px;
+  font-family: 'Press Start 2P', monospace;
+  background: rgba(90, 105, 136, 0.2);
+  color: var(--dim);
+  border: 1px solid rgba(90, 105, 136, 0.3);
+}
+
+.tier-badge.plus {
+  background: rgba(0, 212, 255, 0.1);
+  color: var(--cyan);
+  border-color: rgba(0, 212, 255, 0.3);
+}
+
+.tier-badge.pro {
+  background: rgba(226, 183, 20, 0.1);
+  color: var(--gold);
+  border-color: rgba(226, 183, 20, 0.3);
+}
+
+.credits-text {
+  font-family: 'VT323', monospace;
+  font-size: 16px;
+  color: var(--dim);
+}
+
+.credits-bar-track {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(10, 14, 30, 0.8);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.credits-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--green), var(--cyan));
+  transition: width 0.3s ease;
+}
+
+.credits-bar-fill.low {
+  background: linear-gradient(90deg, var(--orange), var(--red));
+}
+
+.credits-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.btn-upgrade,
+.btn-topup {
+  flex: 1;
+  padding: 6px 8px;
+  border-radius: 5px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 6px;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-upgrade {
+  background: rgba(226, 183, 20, 0.1);
+  border: 1.5px solid var(--gold);
+  color: var(--gold);
+}
+
+.btn-upgrade:hover {
+  background: rgba(226, 183, 20, 0.2);
+  box-shadow: 0 0 10px var(--gold-glow);
+  transform: translateY(-1px);
+}
+
+.btn-topup {
+  background: rgba(0, 212, 255, 0.08);
+  border: 1.5px solid rgba(0, 212, 255, 0.4);
+  color: var(--cyan);
+}
+
+.btn-topup:hover {
+  background: rgba(0, 212, 255, 0.15);
+  box-shadow: 0 0 10px var(--cyan-glow);
+  transform: translateY(-1px);
+}
+
+/* ============================================================
    Dark scrollbar (if panel overflows)
    ============================================================ */
 ::-webkit-scrollbar { width: 6px; }

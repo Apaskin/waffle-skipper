@@ -45,12 +45,13 @@ export async function handleStripeWebhook(request: Request, env: Env): Promise<R
     return json({ error: 'missing_signature' }, 400);
   }
 
-  // Verify webhook signature.
-  // Cloudflare Workers don't have the stripe SDK, so we verify manually.
-  // For MVP, we use a constant-time comparison of the signature.
-  // In production, use the full Stripe signature verification algorithm.
-  // For now, we trust the signature header and parse the event.
-  // TODO: Implement full Stripe signature verification (requires crypto.subtle).
+  // Verify the Stripe webhook signature using crypto.subtle HMAC-SHA256.
+  // Stripe signs payloads as: v1=HMAC-SHA256(whsec, "timestamp.body")
+  // The signature header looks like: t=1234567890,v1=abc123...,v1=def456...
+  const isValid = await verifyStripeSignature(body, sig, env.STRIPE_WEBHOOK_SECRET);
+  if (!isValid) {
+    return json({ error: 'invalid_signature' }, 401);
+  }
 
   let event: StripeEvent;
   try {
@@ -95,6 +96,7 @@ async function handleCheckoutCompleted(session: StripeObject, env: Env): Promise
 
     await updateUser(userId, env, {
       tier,
+      tier_updated_at: new Date().toISOString(),
       credits_remaining: creditLimit,
       credits_monthly_limit: creditLimit,
       stripe_customer_id: customerId,
@@ -139,6 +141,7 @@ async function handleSubscriptionDeleted(subscription: StripeObject, env: Env): 
   // Downgrade to free tier
   await updateUser(user.id, env, {
     tier: 'free',
+    tier_updated_at: new Date().toISOString(),
     credits_monthly_limit: TIER_CREDITS.free,
     stripe_subscription_id: null,
     // Keep current credits_remaining — don't punish mid-cycle
@@ -308,6 +311,89 @@ function nextMonthFirstDay(): string {
   const now = new Date();
   const next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
   return next.toISOString();
+}
+
+// ============================================================
+// Stripe webhook signature verification (HMAC-SHA256)
+// ============================================================
+// Stripe signs webhooks as: t=<timestamp>,v1=<hex-hmac>,v1=<hex-hmac>...
+// The signed payload is: "<timestamp>.<raw_body>"
+// We compute HMAC-SHA256(webhook_secret, signed_payload) and compare
+// against each v1 signature in the header. Also reject timestamps
+// older than 5 minutes to prevent replay attacks.
+
+const STRIPE_SIGNATURE_TOLERANCE_SEC = 300; // 5 minutes
+
+async function verifyStripeSignature(
+  body: string,
+  sigHeader: string,
+  secret: string
+): Promise<boolean> {
+  // Parse the signature header into timestamp and v1 signatures
+  const parts = sigHeader.split(',');
+  let timestamp = '';
+  const signatures: string[] = [];
+
+  for (const part of parts) {
+    const [key, value] = part.split('=', 2);
+    if (key === 't') timestamp = value;
+    if (key === 'v1') signatures.push(value);
+  }
+
+  if (!timestamp || signatures.length === 0) return false;
+
+  // Reject stale timestamps (replay protection)
+  const ts = parseInt(timestamp, 10);
+  if (isNaN(ts)) return false;
+  const age = Math.floor(Date.now() / 1000) - ts;
+  if (age > STRIPE_SIGNATURE_TOLERANCE_SEC || age < -STRIPE_SIGNATURE_TOLERANCE_SEC) {
+    return false;
+  }
+
+  // Compute the expected signature: HMAC-SHA256(secret, "timestamp.body")
+  const signedPayload = `${timestamp}.${body}`;
+
+  const keyData = new TextEncoder().encode(secret);
+  const cryptoKey = await crypto.subtle.importKey(
+    'raw',
+    keyData,
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+
+  const signatureBuffer = await crypto.subtle.sign(
+    'HMAC',
+    cryptoKey,
+    new TextEncoder().encode(signedPayload)
+  );
+
+  // Convert to hex string
+  const expectedHex = Array.from(new Uint8Array(signatureBuffer))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+
+  // Constant-time comparison against each v1 signature
+  for (const sig of signatures) {
+    if (constantTimeEqual(expectedHex, sig)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Constant-time string comparison to prevent timing attacks.
+ * Always compares every character even if a mismatch is found early.
+ */
+function constantTimeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let result = 0;
+  for (let i = 0; i < a.length; i++) {
+    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return result === 0;
 }
 
 // Minimal Stripe event type (we only parse what we need)

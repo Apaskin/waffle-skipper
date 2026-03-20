@@ -25,8 +25,14 @@ export async function getCachedAnalysis(
   videoId: string,
   env: Env
 ): Promise<CachedAnalysis | null> {
+  const params = new URLSearchParams({
+    video_id: `eq.${videoId}`,
+    prompt_version: `eq.${env.PROMPT_VERSION}`,
+    select: '*',
+  });
+
   const res = await fetch(
-    `${env.SUPABASE_URL}/rest/v1/analyses?video_id=eq.${encodeURIComponent(videoId)}&prompt_version=eq.${encodeURIComponent(env.PROMPT_VERSION)}&select=*`,
+    `${env.SUPABASE_URL}/rest/v1/analyses?${params.toString()}`,
     {
       headers: {
         'Content-Type': 'application/json',
@@ -43,40 +49,25 @@ export async function getCachedAnalysis(
 }
 
 /**
- * Increment the access_count on a cached analysis (tracks popularity).
+ * Atomically increment the access_count on a cached analysis.
+ * Uses the increment_access_count RPC to avoid read-then-write races.
  * Fire-and-forget — errors here are non-critical.
  */
 export async function incrementAccessCount(
   analysisId: string,
   env: Env
 ): Promise<void> {
-  // Supabase REST doesn't support atomic increment natively,
-  // so we read + write. Acceptable for a counter — exact accuracy isn't critical.
   try {
-    const res = await fetch(
-      `${env.SUPABASE_URL}/rest/v1/analyses?id=eq.${analysisId}&select=access_count`,
-      {
-        headers: {
-          apikey: env.SUPABASE_SERVICE_KEY,
-          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-        },
-      }
-    );
-    if (!res.ok) return;
-    const rows = (await res.json()) as Array<{ access_count: number }>;
-    if (rows.length === 0) return;
-
     await fetch(
-      `${env.SUPABASE_URL}/rest/v1/analyses?id=eq.${analysisId}`,
+      `${env.SUPABASE_URL}/rest/v1/rpc/increment_access_count`,
       {
-        method: 'PATCH',
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           apikey: env.SUPABASE_SERVICE_KEY,
           Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-          Prefer: 'return=minimal',
         },
-        body: JSON.stringify({ access_count: rows[0].access_count + 1 }),
+        body: JSON.stringify({ p_analysis_id: analysisId }),
       }
     );
   } catch {
@@ -86,6 +77,9 @@ export async function incrementAccessCount(
 
 /**
  * Store a new analysis in the shared cache.
+ * Uses Supabase's ON CONFLICT resolution header to handle the race where
+ * two users analyse the same video+prompt_version simultaneously — the
+ * second insert silently becomes a no-op.
  */
 export async function cacheAnalysis(
   videoId: string,
@@ -102,10 +96,7 @@ export async function cacheAnalysis(
       'Content-Type': 'application/json',
       apikey: env.SUPABASE_SERVICE_KEY,
       Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-      Prefer: 'return=minimal',
-      // On conflict (duplicate video_id) — don't error, just skip.
-      // This handles the race where two users analyse the same video simultaneously.
-      'on-conflict': 'video_id',
+      Prefer: 'return=minimal,resolution=ignore-duplicates',
     },
     body: JSON.stringify({
       video_id: videoId,

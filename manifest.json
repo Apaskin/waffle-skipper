@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
-  "name": "Waffle Skipper",
-  "version": "0.1.0",
+  "name": "Woffle",
+  "version": "0.2.0",
   "description": "Skip the waffle in YouTube videos 🧇",
   "permissions": ["storage"],
   "host_permissions": [
     "https://www.youtube.com/*",
-    "https://api.anthropic.com/*"
+    "https://*.supabase.co/*",
+    "https://*.workers.dev/*"
   ],
   "background": {
     "service_worker": "background.js"

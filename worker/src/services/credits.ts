@@ -1,5 +1,7 @@
 // credits.ts — Credit check, deduction, and reset logic.
 // All database writes use the service role key (server-side only).
+// Credit deduction uses an atomic Supabase RPC to prevent over-deduction
+// under concurrent requests.
 
 import type { Env } from '../index';
 
@@ -40,20 +42,22 @@ export async function checkCredits(userId: string, env: Env): Promise<UserRecord
 }
 
 /**
- * Deduct 1 credit from the user and log the transaction.
- * Uses a raw SQL RPC call to atomically decrement (avoids race conditions).
+ * Atomically deduct 1 credit from the user and log the transaction.
+ *
+ * Uses the deduct_credit RPC which does:
+ *   UPDATE users SET credits_remaining = credits_remaining - 1
+ *   WHERE id = $1 AND credits_remaining > 0
+ *   RETURNING credits_remaining
+ *
+ * The WHERE guard + row-level lock means two concurrent requests cannot
+ * both decrement past zero. If the RPC returns -1, no credits were available.
  */
 export async function deductCredit(
   userId: string,
   videoId: string,
   env: Env
-): Promise<void> {
-  // Atomic decrement via PATCH with Supabase's computed column support
-  // We use the raw REST API: PATCH /users?id=eq.X with credits_remaining = credits_remaining - 1
-  // Supabase REST doesn't support computed updates, so we use an RPC or two-step approach.
-
-  // Step 1: Decrement credits_remaining
-  const patchRes = await fetch(
+): Promise<number> {
+  const rpcRes = await fetch(
     `${env.SUPABASE_URL}/rest/v1/rpc/deduct_credit`,
     {
       method: 'POST',
@@ -62,27 +66,35 @@ export async function deductCredit(
     }
   );
 
-  // If the RPC doesn't exist yet (not in migration), fall back to simple update
-  if (!patchRes.ok) {
-    // Fallback: read-then-write (acceptable for MVP; race window is tiny)
-    const user = await getUser(userId, env);
-    const newCredits = Math.max(0, user.credits_remaining - 1);
-    await supabasePatch(env, `/rest/v1/users?id=eq.${userId}`, {
-      credits_remaining: newCredits,
-    });
+  if (!rpcRes.ok) {
+    const errText = await rpcRes.text();
+    throw new Error(`deduct_credit RPC failed: ${rpcRes.status} ${errText}`);
   }
 
-  // Step 2: Log the transaction
+  // The RPC returns a bare integer (the new balance, or -1 if no credits)
+  const newBalance = (await rpcRes.json()) as number;
+
+  if (newBalance === -1) {
+    const err = new Error('No credits remaining (atomic check)');
+    (err as Error & { code: string }).code = 'no_credits';
+    throw err;
+  }
+
+  // Log the transaction (append-only audit trail)
   await supabasePost(env, '/rest/v1/credit_transactions', {
     user_id: userId,
     amount: -1,
     reason: 'analysis',
     video_id: videoId,
   });
+
+  return newBalance;
 }
 
 /**
  * Add credits to a user (for top-ups or resets) and log the transaction.
+ * Uses a simple PATCH — additive operations don't have the same race concern
+ * because over-crediting by a few is harmless compared to over-deducting.
  */
 export async function addCredits(
   userId: string,
