@@ -1,8 +1,10 @@
-/* options.css — Waffle Skipper options page styles
- * Same retro arcade aesthetic as the popup
- */
+/* options.css — Waffle Skipper settings page
+ * Same retro arcade aesthetic as the popup.
+ * "ENTER ACCESS CODE" terminal vibe for the API key input. */
 
-/* P1-2 fix: fonts bundled locally — no third-party network request. */
+/* ============================================================
+   Bundled fonts (P1-2)
+   ============================================================ */
 @font-face {
   font-family: 'Press Start 2P';
   font-style: normal;
@@ -11,18 +13,20 @@
   src: url('fonts/PressStart2P.woff2') format('woff2');
 }
 
+@font-face {
+  font-family: 'VT323';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('fonts/VT323.woff2') format('woff2');
+}
+
 /* ============================================================
    Reset & Base
    ============================================================ */
-
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
+* { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
-  background: #1a1a2e;
   font-family: 'Press Start 2P', monospace;
   color: #e2b714;
   min-height: 100vh;
@@ -30,63 +34,66 @@ body {
   justify-content: center;
   align-items: flex-start;
   padding: 40px 20px;
+  background:
+    radial-gradient(ellipse 120% 60% at 10% -10%, rgba(0, 212, 255, 0.08), transparent 50%),
+    linear-gradient(172deg, #090b1a 0%, #0f1330 100%);
 }
 
 /* ============================================================
    CRT Scanline Overlay
    ============================================================ */
-
 .crt-overlay {
   pointer-events: none;
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
+  z-index: 999;
   background: repeating-linear-gradient(
     0deg,
-    rgba(0, 0, 0, 0.10) 0px,
-    rgba(0, 0, 0, 0.10) 1px,
+    rgba(0, 0, 0, 0.07) 0px,
+    rgba(0, 0, 0, 0.07) 1px,
     transparent 1px,
-    transparent 2px
+    transparent 3px
   );
-  z-index: 999;
 }
 
 /* ============================================================
    Container
    ============================================================ */
-
 .options-container {
-  max-width: 480px;
+  max-width: 500px;
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 22px;
 }
 
 /* ============================================================
    Header
    ============================================================ */
-
 .options-header {
   display: flex;
   align-items: center;
   gap: 16px;
   padding-bottom: 20px;
-  border-bottom: 2px solid #e2b714;
+  border-bottom: 2px solid rgba(226, 183, 20, 0.3);
 }
 
-.mascot {
-  font-size: 40px;
-  line-height: 1;
+.header-mascot {
+  font-size: 38px;
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #e2b714, #d4a010);
+  box-shadow: 0 0 16px rgba(226, 183, 20, 0.3), 0 6px 16px rgba(0, 0, 0, 0.5);
 }
 
 .options-title {
-  font-size: 16px;
+  font-size: 18px;
+  letter-spacing: 4px;
   color: #e2b714;
-  text-shadow: 0 0 10px rgba(226, 183, 20, 0.6), 0 0 20px rgba(226, 183, 20, 0.3);
-  letter-spacing: 2px;
+  text-shadow: 0 0 12px rgba(226, 183, 20, 0.5), 0 0 30px rgba(226, 183, 20, 0.15);
 }
 
 .options-subtitle {
@@ -100,161 +107,215 @@ body {
 /* ============================================================
    Sections
    ============================================================ */
-
 .options-section {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 16px;
-  background: rgba(15, 15, 35, 0.6);
-  border: 1px solid #2a2a4a;
-  border-radius: 6px;
+  padding: 18px;
+  background: rgba(10, 14, 34, 0.7);
+  border: 1px solid rgba(100, 130, 200, 0.15);
+  border-radius: 8px;
 }
 
-.field-label {
+.section-title {
   font-size: 9px;
   color: #e2b714;
-  letter-spacing: 1px;
+  letter-spacing: 1.5px;
 }
 
-.field-hint {
+.section-hint {
   font-size: 7px;
   color: #5a6988;
-  line-height: 1.5;
+  line-height: 1.6;
+}
+
+.green-text { color: #00ff41 !important; }
+
+/* ============================================================
+   Welcome banner
+   ============================================================ */
+.welcome-banner {
+  border-color: rgba(0, 255, 65, 0.2);
+}
+
+.welcome-steps {
+  font-family: 'VT323', monospace;
+  font-size: 16px;
+  line-height: 1.6;
+  color: #8ea4d8;
+}
+
+.welcome-steps ol {
+  margin: 8px 0 8px 18px;
+}
+
+.welcome-steps strong {
+  color: #e2b714;
 }
 
 /* ============================================================
-   API Key Input
+   Terminal-style API key input
    ============================================================ */
-
-.api-key-input {
-  width: 100%;
+.terminal-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 12px;
-  font-family: 'Press Start 2P', monospace;
-  font-size: 8px;
-  color: #00ff41;
-  background: #0a0a1a;
-  border: 2px solid #2a2a4a;
+  background: #050810;
+  border: 2px solid rgba(100, 130, 200, 0.2);
   border-radius: 4px;
-  outline: none;
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 
-.api-key-input:focus {
+.terminal-box:focus-within {
   border-color: #00d4ff;
-  box-shadow: 0 0 8px rgba(0, 212, 255, 0.3);
+  box-shadow: 0 0 12px rgba(0, 212, 255, 0.2);
 }
 
-.api-key-input::placeholder {
-  color: #2a2a4a;
+.terminal-prompt {
+  font-family: 'VT323', monospace;
+  font-size: 22px;
+  color: #00ff41;
+  text-shadow: 0 0 6px rgba(0, 255, 65, 0.4);
+  animation: cursorBlink 1s step-end infinite;
+}
+
+@keyframes cursorBlink {
+  50% { opacity: 0; }
+}
+
+.terminal-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  color: #00ff41;
+  caret-color: #00ff41;
+}
+
+.terminal-input::placeholder {
+  color: rgba(0, 255, 65, 0.2);
 }
 
 /* ============================================================
-   Buttons
+   Buttons — chunky, glowing, retro
    ============================================================ */
-
 .button-row {
   display: flex;
   gap: 8px;
 }
 
-.save-btn {
+.btn-gold {
   flex: 1;
-  padding: 10px 16px;
+  padding: 11px 16px;
   font-family: 'Press Start 2P', monospace;
   font-size: 9px;
-  color: #1a1a2e;
-  background: #e2b714;
+  letter-spacing: 1px;
+  color: #0a0e1a;
+  background: linear-gradient(180deg, #f0c420, #d4a010);
   border: 2px solid #e2b714;
-  border-radius: 4px;
+  border-radius: 5px;
   cursor: pointer;
   transition: all 0.15s ease;
-  text-shadow: none;
 }
 
-.save-btn:hover {
-  background: #f5ca28;
-  box-shadow: 0 0 12px rgba(226, 183, 20, 0.5);
+.btn-gold:hover {
+  filter: brightness(1.15);
+  transform: translateY(-1px);
+  box-shadow: 0 0 16px rgba(226, 183, 20, 0.5);
 }
 
-.save-btn:active {
-  transform: scale(0.95);
+.btn-gold:active {
+  transform: scale(0.96);
 }
 
-.toggle-btn {
-  padding: 10px 14px;
+.btn-dim {
+  padding: 11px 14px;
   font-size: 14px;
-  background: #0f0f23;
-  border: 2px solid #2a2a4a;
-  border-radius: 4px;
+  background: rgba(10, 14, 30, 0.8);
+  border: 2px solid rgba(100, 130, 200, 0.2);
+  border-radius: 5px;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
-.toggle-btn:hover {
+.btn-dim:hover {
   border-color: #5a6988;
+  filter: brightness(1.3);
 }
 
-.clear-btn {
-  padding: 10px 16px;
+.btn-orange {
+  padding: 11px 16px;
   font-family: 'Press Start 2P', monospace;
   font-size: 8px;
+  letter-spacing: 1px;
   color: #ff6b35;
-  background: #0f0f23;
+  background: rgba(10, 14, 30, 0.8);
   border: 2px solid #ff6b35;
-  border-radius: 4px;
+  border-radius: 5px;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
-.clear-btn:hover {
+.btn-orange:hover {
   background: #ff6b35;
-  color: #1a1a2e;
-  box-shadow: 0 0 12px rgba(255, 107, 53, 0.5);
+  color: #0a0e1a;
+  filter: brightness(1.1);
+  box-shadow: 0 0 14px rgba(255, 107, 53, 0.4);
+  transform: translateY(-1px);
 }
 
-.clear-btn:active {
-  transform: scale(0.95);
+.btn-orange:active {
+  transform: scale(0.96);
 }
 
 /* ============================================================
    Status Message
    ============================================================ */
-
 .status-message {
   display: none;
   font-size: 8px;
-  padding: 8px;
-  border-radius: 3px;
+  padding: 10px;
+  border-radius: 4px;
   text-align: center;
+  letter-spacing: 1px;
 }
 
 .status-message.success {
   color: #00ff41;
-  text-shadow: 0 0 6px rgba(0, 255, 65, 0.5);
+  text-shadow: 0 0 8px rgba(0, 255, 65, 0.5);
 }
 
 .status-message.error {
-  color: #ff6b35;
-  text-shadow: 0 0 6px rgba(255, 107, 53, 0.5);
+  color: #ff3131;
+  text-shadow: 0 0 8px rgba(255, 49, 49, 0.4);
 }
 
 .status-message.info {
   color: #00d4ff;
-  text-shadow: 0 0 6px rgba(0, 212, 255, 0.4);
+  text-shadow: 0 0 8px rgba(0, 212, 255, 0.4);
 }
 
 /* ============================================================
    Footer
    ============================================================ */
-
 .options-footer {
   text-align: center;
-  padding-top: 16px;
+  padding-top: 14px;
 }
 
 .version-text {
-  font-size: 7px;
-  color: #2a2a4a;
-  letter-spacing: 1px;
+  font-size: 6px;
+  color: rgba(90, 105, 136, 0.5);
+  letter-spacing: 1.5px;
 }
+
+/* ============================================================
+   Scrollbar
+   ============================================================ */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #090b1a; }
+::-webkit-scrollbar-thumb { background: rgba(100, 130, 200, 0.25); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(100, 130, 200, 0.4); }

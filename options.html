@@ -11,61 +11,65 @@
   <div class="crt-overlay"></div>
 
   <div class="options-container">
+
     <!-- Header -->
     <header class="options-header">
-      <span class="mascot">🧇</span>
+      <div class="header-mascot">🧇</div>
       <div>
-        <h1 class="options-title">WAFFLE SKIPPER</h1>
+        <h1 class="options-title">WOFFLE</h1>
         <p class="options-subtitle">SETTINGS</p>
       </div>
     </header>
 
-    <!-- First-run welcome banner (hidden after key is saved) -->
-    <section class="options-section welcome-section" id="welcome-section">
-      <p class="field-label" style="color:#00ff41;">🧇 WELCOME TO WAFFLE SKIPPER!</p>
-      <p class="field-hint">
-        To get started, you need a free Anthropic API key. Here's how:<br><br>
-        1. Go to <strong>console.anthropic.com</strong> and create an account.<br>
-        2. Add a small credit balance (analysis costs ~$0.001 per video).<br>
-        3. Create an API key — it starts with <strong>sk-ant-</strong>.<br>
-        4. Paste it below and click SAVE KEY.<br><br>
-        Once saved, navigate to any YouTube video with captions and Waffle Skipper
-        will automatically analyse and skip the filler. Your key is stored
-        <strong>locally on your device only</strong> — never sent anywhere except
-        directly to the Anthropic API.
-      </p>
+    <!-- First-run welcome banner (hidden once key is saved) -->
+    <section class="options-section welcome-banner" id="welcome-section">
+      <p class="section-title green-text">🧇 WELCOME, PLAYER!</p>
+      <div class="welcome-steps">
+        <p>To start zapping waffle you need an access code (API key):</p>
+        <ol>
+          <li>Go to <strong>console.anthropic.com</strong></li>
+          <li>Create an account + add a small credit balance</li>
+          <li>Generate an API key (starts with <strong>sk-ant-</strong>)</li>
+          <li>Paste it below and hit SAVE</li>
+        </ol>
+        <p>Analysis costs ~$0.001 per video. Your key is stored <strong>locally only</strong>.</p>
+      </div>
     </section>
 
     <!-- API Key Section -->
     <section class="options-section">
-      <label class="field-label" for="api-key">ANTHROPIC API KEY</label>
-      <p class="field-hint">Get your key from console.anthropic.com</p>
-      <input
-        type="password"
-        id="api-key"
-        class="api-key-input"
-        placeholder="sk-ant-..."
-        autocomplete="off"
-        spellcheck="false"
-      >
+      <label class="section-title" for="api-key">ENTER ACCESS CODE</label>
+      <p class="section-hint">Your Anthropic API key — stored locally, never shared</p>
+      <div class="terminal-box">
+        <span class="terminal-prompt">&gt;</span>
+        <input
+          type="password"
+          id="api-key"
+          class="terminal-input"
+          placeholder="sk-ant-..."
+          autocomplete="off"
+          spellcheck="false"
+        >
+      </div>
       <div class="button-row">
-        <button id="btn-save" class="save-btn">SAVE KEY</button>
-        <button id="btn-toggle-visibility" class="toggle-btn" title="Show/hide key">👁</button>
+        <button id="btn-save" class="btn-gold">SAVE KEY</button>
+        <button id="btn-toggle-visibility" class="btn-dim" title="Show/hide key">👁</button>
       </div>
       <div id="status-message" class="status-message"></div>
     </section>
 
     <!-- Cache Section -->
     <section class="options-section">
-      <label class="field-label">CACHE</label>
-      <p class="field-hint">Clear cached video analyses</p>
-      <button id="btn-clear-cache" class="clear-btn">CLEAR CACHE</button>
+      <label class="section-title">CACHE DATA</label>
+      <p class="section-hint">Clear locally cached video analyses</p>
+      <button id="btn-clear-cache" class="btn-orange">CLEAR CACHE</button>
     </section>
 
     <!-- About -->
     <footer class="options-footer">
-      <p class="version-text">V0.1.0 — SKIP THE WAFFLE</p>
+      <p class="version-text">V0.1.0 — SKIP THE FLUFF. GET THE STUFF.</p>
     </footer>
+
   </div>
 
   <script src="options.js"></script>

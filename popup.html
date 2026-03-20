@@ -7,60 +7,86 @@
   <title>Waffle Skipper</title>
 </head>
 <body>
+  <!-- CRT scanline overlay — the subtle horizontal lines that sell the retro feel -->
   <div class="crt-overlay"></div>
 
   <div class="popup-container">
+
+    <!-- ============ HEADER — branding + tagline ============ -->
     <header class="popup-header">
-      <span class="mascot">WS</span>
-      <div class="popup-brand-copy">
-        <h1 class="popup-title">WAFFLE SKIPPER</h1>
-        <div class="popup-subtitle">RETRO AI VIDEO SKIPPER</div>
+      <div class="mascot-box">🧇</div>
+      <div class="popup-brand">
+        <h1 class="popup-title">WOFFLE</h1>
+        <div class="popup-tagline">SKIP THE FLUFF. GET THE STUFF.</div>
       </div>
     </header>
 
-    <section class="popup-section" id="status-section">
+    <!-- ============ VIDEO STATUS ============ -->
+    <section class="panel" id="status-section">
+      <div class="panel-label">NOW PLAYING</div>
       <div class="video-title" id="video-title">NO VIDEO DETECTED</div>
       <div class="analysis-status" id="analysis-status">Navigate to a YouTube video</div>
     </section>
 
-    <section class="popup-section" id="controls-section">
-      <div class="section-label">CONTROLS</div>
-      <div class="skip-toggle-row">
-        <span class="skip-toggle-label">AUTO SKIP</span>
-        <button class="skip-toggle-btn" id="btn-skip-toggle" aria-pressed="true" title="Toggle auto-skip on/off">
-          <span id="skip-toggle-state">ON</span>
+    <!-- ============ MODE SELECTOR — 3 chunky arcade buttons ============ -->
+    <section class="panel" id="mode-section">
+      <div class="panel-label">MODE SELECT</div>
+      <div class="mode-row">
+        <button class="mode-btn active" id="mode-auto" data-mode="auto" title="Auto-skip waffle segments">
+          <span class="mode-icon">⚡</span>
+          <span class="mode-text">AUTO</span>
+        </button>
+        <button class="mode-btn" id="mode-manual" data-mode="manual" title="Highlight waffle but don't skip">
+          <span class="mode-icon">👆</span>
+          <span class="mode-text">MANUAL</span>
+        </button>
+        <button class="mode-btn" id="mode-off" data-mode="off" title="Disable waffle detection">
+          <span class="mode-icon">😴</span>
+          <span class="mode-text">OFF</span>
         </button>
       </div>
-      <div class="analysis-status">CLICK TIMELINE TO SEEK</div>
-      <div class="analysis-status">TAB: NEXT GREEN SECTION</div>
-      <div class="analysis-status">SHIFT+TAB: PREV SECTION (ANY)</div>
     </section>
 
-    <section class="popup-section" id="stats-section">
-      <div class="section-label">STATS</div>
-      <div class="stat-row">
-        <span class="stat-label">WAFFLES FOUND</span>
-        <span class="stat-value" id="stat-waffle-count">--</span>
+    <!-- ============ SCORE PANEL — arcade counter aesthetic ============ -->
+    <section class="panel" id="stats-section">
+      <div class="panel-label">HIGH SCORE</div>
+      <div class="score-grid">
+        <div class="score-cell">
+          <div class="score-label">WAFFLES FOUND</div>
+          <div class="score-value gold" id="stat-waffle-count">--</div>
+        </div>
+        <div class="score-cell">
+          <div class="score-label">TIME SAVEABLE</div>
+          <div class="score-value gold" id="stat-time-saveable">--</div>
+        </div>
+        <div class="score-cell">
+          <div class="score-label">WAFFLES ZAPPED</div>
+          <div class="score-value green" id="stat-skipped">--</div>
+        </div>
+        <div class="score-cell">
+          <div class="score-label">TIME SAVED ⚡</div>
+          <div class="score-value green" id="stat-time-saved">--</div>
+        </div>
       </div>
-      <div class="stat-row">
-        <span class="stat-label">TIME SAVEABLE</span>
-        <span class="stat-value" id="stat-time-saveable">--</span>
+      <!-- Waffle vs substance ratio bar -->
+      <div class="ratio-bar-label">
+        <span class="ratio-text-green">SUBSTANCE</span>
+        <span class="ratio-text-orange">WAFFLE</span>
       </div>
-      <div class="stat-row">
-        <span class="stat-label">SKIPPED</span>
-        <span class="stat-value green" id="stat-skipped">--</span>
-      </div>
-      <div class="stat-row">
-        <span class="stat-label">TIME SAVED</span>
-        <span class="stat-value green" id="stat-time-saved">--</span>
+      <div class="ratio-bar" id="ratio-bar">
+        <div class="ratio-fill-substance" id="ratio-substance" style="width:100%"></div>
+        <div class="ratio-fill-waffle" id="ratio-waffle" style="width:0%"></div>
       </div>
     </section>
 
+    <!-- ============ FOOTER ============ -->
     <footer class="popup-footer">
       <button class="settings-btn" id="btn-settings" title="Settings">
-        SETTINGS
+        ⚙ OPTIONS
       </button>
+      <div class="footer-tagline">INSERT COIN TO CONTINUE</div>
     </footer>
+
   </div>
 
   <script src="popup.js"></script>

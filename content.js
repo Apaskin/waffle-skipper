@@ -417,13 +417,13 @@
 
     scoreboardEl.innerHTML = `
       <div class="waffle-scoreboard-head">
-        <span class="waffle-chip">WS</span>
+        <span class="waffle-chip">🧇</span>
         <div class="waffle-head-copy">
-          <span class="waffle-head-title">WAFFLE SKIPPER</span>
-          <span class="waffle-head-sub" id="waffle-skip-status">${autoSkipEnabled ? 'AUTO SKIP ACTIVE' : 'AUTO SKIP OFF'}</span>
+          <span class="waffle-head-title">WOFFLE</span>
+          <span class="waffle-head-sub" id="waffle-skip-status">${autoSkipEnabled ? 'AUTO SKIP ⚡' : 'SKIP OFF'}</span>
         </div>
       </div>
-      <div class="waffle-scoreboard-hint">TAB NEXT GREEN - SHIFT+TAB PREV</div>
+      <div class="waffle-scoreboard-hint">TAB → NEXT · SHIFT+TAB → PREV</div>
       <div class="waffle-scoreboard-stats">
         <div class="waffle-scoreboard-line">
           <span class="waffle-label">FOUND</span>
@@ -460,12 +460,24 @@
     }
   }
 
-  // P1-5: Update the scoreboard subtitle when the auto-skip toggle changes
+  // Update the scoreboard subtitle when the auto-skip toggle changes
   function updateScoreboardSkipState() {
     const statusEl = document.getElementById('waffle-skip-status');
     if (statusEl) {
-      statusEl.textContent = autoSkipEnabled ? 'AUTO SKIP ACTIVE' : 'AUTO SKIP OFF';
+      statusEl.textContent = autoSkipEnabled ? 'AUTO SKIP ⚡' : 'SKIP OFF';
     }
+  }
+
+  // Brief 🧇 emoji pop animation overlaid on the video when waffle is auto-skipped.
+  // The element self-destructs after the CSS animation completes (0.6s).
+  function showSkipFlash() {
+    const player = document.querySelector('#movie_player');
+    if (!player) return;
+    const flash = document.createElement('div');
+    flash.id = 'waffle-skip-flash';
+    flash.textContent = '🧇';
+    player.appendChild(flash);
+    setTimeout(() => flash.remove(), 700);
   }
 
   // ============================================================
@@ -517,6 +529,7 @@
         wafflesZapped++;
         timeSavedSec += (segment.end - currentTime);
         updateScoreboard();
+        showSkipFlash(); // Brief 🧇 pop animation on the video player
 
         skipCooldown = true;
         setTimeout(() => { skipCooldown = false; }, 300);
@@ -612,7 +625,7 @@
 
     const loadingEl = document.createElement('div');
     loadingEl.id = 'waffle-loading';
-    loadingEl.innerHTML = '<span class="waffle-loading-text">WS ANALYZING...</span>';
+    loadingEl.innerHTML = '<span class="waffle-loading-text">🧇 SCANNING FOR WAFFLE...</span>';
 
     injectTimeline(loadingEl);
   }
