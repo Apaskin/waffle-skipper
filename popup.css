@@ -378,6 +378,69 @@ body {
 }
 
 /* ============================================================
+   Timeline visibility — slim checkbox panel between intensity and score
+   ============================================================ */
+.panel-slim {
+  padding: 7px 12px;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.checkbox-row input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--dim);
+  border-radius: 3px;
+  background: rgba(10, 14, 32, 0.8);
+  cursor: pointer;
+  flex-shrink: 0;
+  position: relative;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.checkbox-row input[type="checkbox"]:checked {
+  border-color: var(--cyan);
+  background: rgba(0, 212, 255, 0.1);
+}
+
+/* Checkmark via ::after */
+.checkbox-row input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 0px;
+  width: 6px;
+  height: 9px;
+  border: 2px solid var(--cyan);
+  border-top: none;
+  border-left: none;
+  transform: rotate(45deg);
+}
+
+.checkbox-label {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  color: var(--cyan);
+  letter-spacing: 0.5px;
+}
+
+.checkbox-hint {
+  font-family: 'VT323', monospace;
+  font-size: 12px;
+  color: var(--dim);
+  margin-left: auto;
+  opacity: 0.7;
+}
+
+/* ============================================================
    Score panel — arcade counter aesthetic
    ============================================================ */
 #stats-section {

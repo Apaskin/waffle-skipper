@@ -74,6 +74,23 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // ============================================================
+  // Timeline visibility checkbox — stored in chrome.storage.sync
+  // ============================================================
+  // When checked, content script injects the timeline into #movie_player
+  // directly (not inside .ytp-chrome-bottom) so it stays visible even
+  // when YouTube auto-hides its player controls.
+
+  const chkAlwaysVisible = document.getElementById('chk-always-visible');
+  const { timelineAlwaysVisible: initAlwaysVisible = true } =
+    await chrome.storage.sync.get('timelineAlwaysVisible');
+  chkAlwaysVisible.checked = initAlwaysVisible !== false;
+
+  chkAlwaysVisible.addEventListener('change', async () => {
+    await chrome.storage.sync.set({ timelineAlwaysVisible: chkAlwaysVisible.checked });
+    // storage.onChanged in content.js picks this up and re-injects the timeline
+  });
+
+  // ============================================================
   // Stats helper — update score counters and ratio bar
   // ============================================================
   // Called on popup open (from GET_STATUS) and when intensity changes

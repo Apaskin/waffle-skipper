@@ -23,6 +23,11 @@
   // Updated live when the user toggles in the popup via storage change listener.
   let autoSkipEnabled = true;
 
+  // Whether to keep the timeline permanently visible (default: true).
+  // When true, the timeline is injected into #movie_player directly so it
+  // is never inside .ytp-chrome-bottom (which YouTube fades to opacity:0).
+  let timelineAlwaysVisible = true;
+
   // Skip stats for this session
   let wafflesZapped = 0;
   let timeSavedSec = 0;
@@ -60,11 +65,15 @@
   console.log('[Waffle Skipper] Content script loaded');
 
   // Load persisted preferences on startup
-  chrome.storage.sync.get(['autoSkipEnabled', 'woffleIntensity'], (result) => {
+  chrome.storage.sync.get(['autoSkipEnabled', 'woffleIntensity', 'timelineAlwaysVisible'], (result) => {
     autoSkipEnabled = result.autoSkipEnabled !== false;
     if (result.woffleIntensity) {
       currentIntensity = result.woffleIntensity;
       waffleThreshold = getWaffleThreshold(currentIntensity);
+    }
+    // Only override the default (true) if explicitly set to false in storage
+    if (result.timelineAlwaysVisible !== undefined) {
+      timelineAlwaysVisible = result.timelineAlwaysVisible !== false;
     }
   });
 
@@ -76,6 +85,11 @@
     }
     if ('woffleIntensity' in changes) {
       applyIntensity(changes.woffleIntensity.newValue || 'medium');
+    }
+    if ('timelineAlwaysVisible' in changes) {
+      timelineAlwaysVisible = changes.timelineAlwaysVisible.newValue !== false;
+      // Re-inject timeline in correct location if currently showing
+      if (segments.length > 0) renderTimeline();
     }
   });
 
@@ -90,11 +104,13 @@
       return true;
     }
     if (message.type === 'SET_INTENSITY') {
-      // Apply new threshold, re-render timeline, persist, return updated stats.
+      // Apply new threshold, re-render timeline, return updated stats.
       // The popup uses the returned status to update score counters immediately.
+      // NOTE: we do NOT write to storage here — the popup already wrote before
+      // sending this message. Writing here would trigger storage.onChanged, which
+      // calls applyIntensity() again, causing a double re-render.
       const intensity = message.intensity || 'medium';
       applyIntensity(intensity);
-      chrome.storage.sync.set({ woffleIntensity: intensity });
       sendResponse(getStatus());
       return true;
     }
@@ -405,25 +421,60 @@
   }
 
   function injectTimeline(el) {
-    // Try to find YouTube's progress bar container and inject below it
+    if (timelineAlwaysVisible) {
+      // Inject directly into #movie_player at an absolute position just below
+      // the progress bar. This ensures the timeline is NEVER inside
+      // .ytp-chrome-bottom, which YouTube sets to opacity:0 during auto-hide.
+      // CSS opacity on a parent node cannot be overridden by a child — structural
+      // separation is the only reliable fix.
+      const player = document.querySelector('#movie_player');
+      if (player) {
+        el.classList.add('always-visible');
+        positionTimelineAbsolute(el);
+        player.appendChild(el);
+        return;
+      }
+    }
+
+    // Standard inject: lives inside .ytp-chrome-bottom (hides with controls)
     const progressBar = document.querySelector('.ytp-progress-bar-container');
     if (progressBar && progressBar.parentNode) {
       progressBar.parentNode.insertBefore(el, progressBar.nextSibling);
       return;
     }
 
-    // Fallback: append to the chrome-bottom area
     const chromeBottom = document.querySelector('.ytp-chrome-bottom');
     if (chromeBottom) {
       chromeBottom.appendChild(el);
       return;
     }
 
-    // Last resort: append to the player
     const player = document.querySelector('#movie_player');
     if (player) {
       player.appendChild(el);
     }
+  }
+
+  // Calculate where the progress bar sits within #movie_player and position
+  // the given element just below it using absolute coordinates.
+  // Called when timelineAlwaysVisible = true so the element is placed in
+  // #movie_player rather than inside .ytp-chrome-bottom.
+  function positionTimelineAbsolute(el) {
+    const player = document.querySelector('#movie_player');
+    const progressBar = document.querySelector('.ytp-progress-bar-container');
+    if (!player || !progressBar) return;
+
+    const playerRect = player.getBoundingClientRect();
+    const barRect = progressBar.getBoundingClientRect();
+
+    el.style.position = 'absolute';
+    el.style.left = '0';
+    el.style.right = '0';
+    el.style.width = '100%';
+    // top = distance from player top to bottom of progress bar
+    const topPx = barRect.bottom - playerRect.top;
+    el.style.top = `${topPx}px`;
+    el.style.zIndex = '80';
   }
 
   // ============================================================
@@ -614,6 +665,7 @@
 
       event.preventDefault();
       video.currentTime = targetTime;
+      flashSegment(targetTime); // Visual feedback: briefly highlight the segment we jumped to
       const targetIsWaffle = targetSegment && (
         targetSegment.waffle_confidence !== undefined
           ? targetSegment.waffle_confidence >= waffleThreshold
@@ -629,6 +681,23 @@
     };
 
     window.addEventListener('keydown', keydownHandler, true);
+  }
+
+  // Flash the timeline segment containing the given time, providing visual
+  // feedback when the user jumps with Tab/Shift+Tab keyboard navigation.
+  function flashSegment(time) {
+    if (!timelineEl) return;
+    const segEl = [...timelineEl.querySelectorAll('.waffle-segment')].find(el => {
+      const start = parseFloat(el.dataset.start);
+      const end = parseFloat(el.dataset.end);
+      return time >= start && time <= end;
+    });
+    if (!segEl) return;
+    // Remove first to restart animation if user jumps quickly
+    segEl.classList.remove('nav-flash');
+    void segEl.offsetWidth; // force reflow
+    segEl.classList.add('nav-flash');
+    setTimeout(() => segEl.classList.remove('nav-flash'), 600);
   }
 
   function findNextSubstanceStart(currentTime) {

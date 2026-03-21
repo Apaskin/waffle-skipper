@@ -86,6 +86,36 @@
   to   { opacity: 1; }
 }
 
+/* Always-visible mode: injected into #movie_player, not .ytp-chrome-bottom.
+   Positioned absolutely via JS so it sits just below the progress bar and
+   is never affected by YouTube's opacity:0 auto-hide on the controls. */
+#movie_player > #waffle-timeline,
+#movie_player > #waffle-loading,
+#movie_player > #waffle-error {
+  /* z-index set inline by positionTimelineAbsolute(); these rules handle
+     pointer-events and ensure the bar doesn't block click-throughs */
+  pointer-events: auto;
+}
+
+#waffle-timeline.always-visible,
+#waffle-loading.always-visible,
+#waffle-error.always-visible {
+  /* Override any inherited opacity — these elements are in #movie_player,
+     outside .ytp-chrome-bottom, so this is mainly defensive */
+  opacity: 1 !important;
+}
+
+/* Keyboard nav flash — brief highlight on the segment the user jumped to */
+.waffle-segment.nav-flash {
+  animation: segmentJumpFlash 0.6s ease-out forwards;
+}
+
+@keyframes segmentJumpFlash {
+  0%   { filter: brightness(2.5); transform: scaleY(2); }
+  40%  { filter: brightness(1.8); transform: scaleY(1.8); }
+  100% { filter: brightness(1);   transform: scaleY(1); }
+}
+
 /* ============================================================
    Tooltip — appears on segment hover
    ============================================================ */
