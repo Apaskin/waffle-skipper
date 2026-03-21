@@ -280,7 +280,8 @@
 }
 
 /* ============================================================
-   Transcript toggle button — next to 🧇 SCAN button
+   Transcript toggle button — matches 🧇 SCAN button (gold pair)
+   Bug 4 fix: was dim grey by default; now gold to match scan button.
    ============================================================ */
 #woffle-transcript-toggle {
   display: inline-flex;
@@ -289,41 +290,63 @@
   margin: 4px 0 4px 4px;
   padding: 0 10px;
   border-radius: 8px;
-  border: 2px solid var(--ws-dim);
-  background: rgba(10, 14, 38, 0.8);
+  /* Gold by default — matches the scan button, both feel like a pair */
+  border: 2px solid var(--ws-gold);
+  background: rgba(226, 183, 20, 0.08);
   font-family: 'Press Start 2P', monospace;
   font-size: 8px;
-  color: var(--ws-dim);
+  color: var(--ws-gold);
   cursor: pointer;
   transition: all 0.15s ease;
   vertical-align: middle;
 }
 
 #woffle-transcript-toggle:hover {
-  border-color: var(--ws-gold);
-  color: var(--ws-gold);
-  background: rgba(226, 183, 20, 0.08);
+  background: rgba(226, 183, 20, 0.2);
+  box-shadow: 0 0 12px rgba(226, 183, 20, 0.3);
+  transform: translateY(-1px);
 }
 
+/* Active/open state: inverted — gold background with dark text */
 #woffle-transcript-toggle.active {
-  border-color: var(--ws-cyan);
-  color: var(--ws-cyan);
-  background: rgba(0, 212, 255, 0.08);
-  box-shadow: 0 0 8px rgba(0, 212, 255, 0.2);
+  background: rgba(226, 183, 20, 0.85);
+  color: #0a0e26;
+  border-color: var(--ws-gold);
+  box-shadow: 0 0 12px rgba(226, 183, 20, 0.4);
 }
 
 /* ============================================================
    Transcript panel — collapsible synced transcript below player
+   Bug 5 fix: now uses gold border, CRT scanlines, header bar.
    ============================================================ */
 #woffle-transcript-panel {
   width: 100%;
-  max-height: 200px;
+  max-height: 240px;  /* header + 200px scroll area */
   overflow: hidden;
-  border: 1px solid rgba(226, 183, 20, 0.3);
-  border-radius: 0 0 8px 8px;
-  background: rgba(15, 52, 96, 0.95);
+  /* Bug 5: thicker gold border to match app chrome */
+  border: 2px solid var(--ws-gold);
+  border-radius: 6px;
+  /* Retro deep-blue background matching popup panels */
+  background: #0d2850;
   margin-bottom: 8px;
+  position: relative;
   transition: max-height 0.3s ease-out, opacity 0.3s ease-out;
+}
+
+/* CRT scanline overlay — same subtle effect as the popup */
+#woffle-transcript-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.08) 2px,
+    rgba(0, 0, 0, 0.08) 4px
+  );
+  pointer-events: none;
+  z-index: 1;
 }
 
 #woffle-transcript-panel.collapsed {
@@ -334,11 +357,51 @@
   transition: max-height 0.2s ease-in, opacity 0.2s ease-in;
 }
 
+/* Panel header bar — title + close button */
+.woffle-transcript-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 10px;
+  border-bottom: 1px solid rgba(226, 183, 20, 0.3);
+  background: rgba(226, 183, 20, 0.05);
+  position: relative;
+  z-index: 2;
+}
+
+.woffle-transcript-header-label {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  color: var(--ws-gold);
+  letter-spacing: 1px;
+  text-shadow: 0 0 6px rgba(226, 183, 20, 0.3);
+}
+
+.woffle-transcript-close {
+  background: none;
+  border: 1px solid rgba(226, 183, 20, 0.4);
+  border-radius: 4px;
+  color: var(--ws-dim);
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.woffle-transcript-close:hover {
+  border-color: var(--ws-orange);
+  color: var(--ws-orange);
+  background: rgba(255, 107, 53, 0.1);
+}
+
 .woffle-transcript-scroll {
   max-height: 200px;
   overflow-y: auto;
   scroll-behavior: smooth;
   padding: 4px 0;
+  position: relative;
+  z-index: 2;
 }
 
 /* Custom scrollbar — retro gold on dark */
@@ -349,41 +412,45 @@
   background: rgba(10, 14, 38, 0.5);
 }
 .woffle-transcript-scroll::-webkit-scrollbar-thumb {
-  background: rgba(226, 183, 20, 0.3);
+  background: rgba(226, 183, 20, 0.4);
   border-radius: 3px;
 }
 .woffle-transcript-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgba(226, 183, 20, 0.5);
+  background: rgba(226, 183, 20, 0.65);
 }
 
 /* ============================================================
    Transcript line — single row: indicator + timestamp + text
+   Bug 3 fix: white text, cyan timestamps, 1.5 line-height, gold border on active.
    ============================================================ */
 .woffle-transcript-line {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  padding: 3px 10px;
+  padding: 4px 10px;
   cursor: pointer;
-  transition: background 0.15s ease;
+  border-left: 3px solid transparent;
+  transition: background 0.15s ease, border-color 0.15s ease;
 }
 
 .woffle-transcript-line:hover {
-  background: rgba(226, 183, 20, 0.06);
+  background: rgba(226, 183, 20, 0.07);
 }
 
-/* Active line — currently playing segment. Subtle gold tint background. */
+/* Active line — gold left border + subtle gold background tint */
 .woffle-transcript-line.active {
   background: rgba(226, 183, 20, 0.1);
+  border-left-color: var(--ws-gold);
 }
 
 /* ▶ play indicator — only visible on the active (current) line */
 .woffle-transcript-indicator {
-  width: 12px;
+  width: 10px;
   flex-shrink: 0;
   font-size: 8px;
   color: var(--ws-cyan);
-  line-height: 20px;
+  line-height: 1.5;
+  padding-top: 1px;
   text-align: center;
 }
 
@@ -391,35 +458,36 @@
   content: '▶';
 }
 
-/* Timestamp — small, dim, monospace */
+/* Bug 3: timestamps now cyan, not dim grey */
 .woffle-transcript-time {
   flex-shrink: 0;
-  width: 36px;
+  width: 38px;
   font-family: 'Press Start 2P', monospace;
   font-size: 7px;
-  color: var(--ws-dim);
-  line-height: 20px;
+  color: var(--ws-cyan);
+  line-height: 1.5;
+  padding-top: 2px;
 }
 
-/* Transcript text — VT323 for readability */
+/* Bug 3: text clearly white, larger font, comfortable line height */
 .woffle-transcript-text {
   font-family: 'VT323', monospace;
-  font-size: 14px;
-  line-height: 20px;
-  color: #e8e8e8;
+  font-size: 15px;
+  line-height: 1.5;
+  color: #f0f0f0;
   word-break: break-word;
 }
 
-/* Waffle line — orange with strikethrough, reduced opacity.
-   Visually communicates "this was skipped" without hiding the text. */
+/* Waffle line — orange with strikethrough at 70% opacity (still readable).
+   Bug 3: raised opacity from 0.6 to 0.7 for better readability. */
 .woffle-transcript-line.waffle .woffle-transcript-text {
   color: var(--ws-orange);
   text-decoration: line-through;
-  opacity: 0.6;
+  opacity: 0.7;
 }
 
 .woffle-transcript-line.waffle .woffle-transcript-time {
-  color: rgba(255, 107, 53, 0.5);
+  color: rgba(255, 107, 53, 0.6);
 }
 
 /* Skip flash — brief orange flash when a waffle line is auto-skipped */
@@ -428,7 +496,7 @@
 }
 
 @keyframes transcriptSkipFlash {
-  0%   { background: rgba(255, 107, 53, 0.3); }
+  0%   { background: rgba(255, 107, 53, 0.35); }
   100% { background: transparent; }
 }
 

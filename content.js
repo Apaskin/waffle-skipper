@@ -129,6 +129,7 @@
       // sending this message. Writing here would trigger storage.onChanged, which
       // calls applyIntensity() again, causing a double re-render.
       const intensity = message.intensity || 'medium';
+      console.log(`[Waffle Skipper] SET_INTENSITY received: ${intensity} (segments: ${segments.length})`);
       applyIntensity(intensity);
       sendResponse(getStatus());
       return true;
@@ -378,7 +379,10 @@
     const video = document.querySelector('video');
     if (!video || segments.length === 0) return;
 
-    const duration = video.duration;
+    // Use last segment's end as fallback duration when video metadata isn't ready.
+    // This prevents the timeline silently disappearing when the video element
+    // temporarily reports duration=0 during an intensity change re-render.
+    const duration = video.duration || (segments.length > 0 ? segments[segments.length - 1].end : 0);
     if (!duration || duration === 0) {
       // Video not loaded yet — wait and retry
       video.addEventListener('loadedmetadata', () => renderTimeline(), { once: true });
@@ -929,6 +933,29 @@
     transcriptPanelEl.id = 'woffle-transcript-panel';
     if (!transcriptPanelOpen) transcriptPanelEl.classList.add('collapsed');
 
+    // Header bar — label + close button (retro arcade style)
+    const header = document.createElement('div');
+    header.className = 'woffle-transcript-header';
+
+    const headerLabel = document.createElement('span');
+    headerLabel.className = 'woffle-transcript-header-label';
+    headerLabel.textContent = '📜 TRANSCRIPT';
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'woffle-transcript-close';
+    closeBtn.textContent = '✕';
+    closeBtn.title = 'Close transcript';
+    closeBtn.addEventListener('click', () => {
+      transcriptPanelOpen = false;
+      chrome.storage.sync.set({ transcriptPanelOpen: false });
+      transcriptPanelEl.classList.add('collapsed');
+      if (transcriptToggleEl) transcriptToggleEl.classList.remove('active');
+    });
+
+    header.appendChild(headerLabel);
+    header.appendChild(closeBtn);
+    transcriptPanelEl.appendChild(header);
+
     const scrollContainer = document.createElement('div');
     scrollContainer.className = 'woffle-transcript-scroll';
 
@@ -1106,7 +1133,23 @@
         ? s.waffle_confidence >= waffleThreshold
         : s.type === 'waffle'
     );
-    const totalWaffleTime = waffleSegments.reduce((sum, s) => sum + (s.end - s.start), 0);
+
+    // De-overlap waffle segments before summing to prevent double-counting.
+    // Claude sometimes returns segments with overlapping time ranges.
+    // Sort by start, then for each segment only count the non-overlapping portion.
+    // Also cap at video duration — TIME SAVEABLE can never exceed the video length.
+    const videoDur = video?.duration || 0;
+    const sortedWaffle = [...waffleSegments].sort((a, b) => a.start - b.start);
+    let totalWaffleTime = 0;
+    let lastWaffleEnd = 0;
+    for (const seg of sortedWaffle) {
+      const start = Math.max(seg.start, lastWaffleEnd);
+      const end = videoDur > 0 ? Math.min(seg.end, videoDur) : seg.end;
+      if (end > start) {
+        totalWaffleTime += end - start;
+        lastWaffleEnd = end;
+      }
+    }
 
     return {
       videoId: currentVideoId,
