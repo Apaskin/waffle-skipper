@@ -1,12 +1,18 @@
 // analyse.ts — POST /api/analyse and GET /api/analyse/:video_id
-// The core route: checks shared cache, deducts credits, calls Claude,
-// stores results in the shared cache for all users.
+// Two-pass classification:
+//   mode: 'quick' — Haiku intro scan, returns JSON, no credit cost, not cached
+//   mode: 'full'  — Sonnet full analysis with SSE streaming, 1 credit, cached
 
 import type { Env } from '../index';
 import { verifyAuth, AuthError } from '../middleware/auth';
 import { checkCredits, deductCredit } from '../services/credits';
 import { getCachedAnalysis, incrementAccessCount, cacheAnalysis } from '../services/cache';
-import { classifyTranscript, type TranscriptChunk } from '../services/claude';
+import {
+  classifyIntroQuick,
+  classifyFullTranscriptStreaming,
+  classifyFullTranscript,
+  type TranscriptChunk,
+} from '../services/claude';
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -17,19 +23,13 @@ function json(data: unknown, status = 200): Response {
 
 /**
  * POST /api/analyse
- * Body: { video_id, transcript_chunks: [{start, end, text}], video_title?, video_duration_seconds? }
+ * Body: { mode, video_id, transcript_chunks, video_title?, video_duration_seconds? }
  *
- * Flow:
- * 1. Verify JWT → get user_id
- * 2. Check shared cache for existing analysis with current prompt_version
- * 3. Cache hit → increment access_count, return segments (no credit deducted)
- * 4. Cache miss → check user has credits
- * 5. Call Claude Haiku with confidence-scoring prompt
- * 6. Store in shared cache
- * 7. Deduct 1 credit, log transaction
- * 8. Return segments
+ * mode: 'quick' — Haiku scans first 90s for intro detection. Free, fast, not cached.
+ * mode: 'full'  — Sonnet analyses full transcript with streaming SSE response.
+ *                  Costs 1 credit, result cached in Supabase after stream completes.
  */
-export async function handleAnalyse(request: Request, env: Env): Promise<Response> {
+export async function handleAnalyse(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
   // 1. Auth
   let userId: string;
   try {
@@ -41,6 +41,7 @@ export async function handleAnalyse(request: Request, env: Env): Promise<Respons
 
   // Parse body
   let body: {
+    mode?: 'quick' | 'full';
     video_id?: string;
     transcript_chunks?: TranscriptChunk[];
     video_title?: string;
@@ -52,7 +53,7 @@ export async function handleAnalyse(request: Request, env: Env): Promise<Respons
     return json({ error: 'invalid_json' }, 400);
   }
 
-  const { video_id, transcript_chunks, video_title, video_duration_seconds } = body;
+  const { mode = 'full', video_id, transcript_chunks, video_title, video_duration_seconds } = body;
 
   if (!video_id || typeof video_id !== 'string') {
     return json({ error: 'missing_video_id' }, 400);
@@ -61,11 +62,28 @@ export async function handleAnalyse(request: Request, env: Env): Promise<Respons
     return json({ error: 'missing_transcript_chunks' }, 400);
   }
 
+  // ============================================================
+  // Quick mode — Haiku intro scan (no credit, no cache)
+  // ============================================================
+  if (mode === 'quick') {
+    try {
+      const result = await classifyIntroQuick(transcript_chunks, env, video_title);
+      return json(result);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('[Woffle] Quick scan failed:', message);
+      return json({ error: 'quick_scan_failed', detail: message }, 502);
+    }
+  }
+
+  // ============================================================
+  // Full mode — Sonnet streaming analysis
+  // ============================================================
+
   // 2. Check shared cache
   const cached = await getCachedAnalysis(video_id, env);
   if (cached) {
-    // 3. Cache hit — serve from cache, no credit cost
-    // Fire-and-forget: increment the access counter
+    // Cache hit — serve from cache, no credit cost
     incrementAccessCount(cached.id, env).catch(() => {});
     return json({
       segments: cached.segments,
@@ -74,7 +92,7 @@ export async function handleAnalyse(request: Request, env: Env): Promise<Respons
     });
   }
 
-  // 4. Check credits
+  // 3. Check credits
   try {
     await checkCredits(userId, env);
   } catch (err: unknown) {
@@ -85,35 +103,67 @@ export async function handleAnalyse(request: Request, env: Env): Promise<Respons
     throw err;
   }
 
-  // 5. Call Claude
-  let segments;
+  // 4. Stream the classification response
   try {
-    segments = await classifyTranscript(transcript_chunks, env, video_title);
+    const { stream, segmentsPromise } = classifyFullTranscriptStreaming(
+      transcript_chunks, env, video_title, video_duration_seconds
+    );
+
+    // After the stream completes, cache the result and deduct credit.
+    // Use waitUntil if available (Cloudflare Workers) to keep the worker alive
+    // after the response body finishes streaming.
+    const afterStream = segmentsPromise.then(async (segments) => {
+      // Cache the merged segments for all users
+      await cacheAnalysis(
+        video_id, segments, 'claude-sonnet-4-5-20241022',
+        userId, env, video_title, video_duration_seconds
+      ).catch((err) => console.error('[Woffle] Cache write failed:', err));
+
+      // Deduct 1 credit
+      await deductCredit(userId, video_id, env)
+        .catch((err) => console.error('[Woffle] Credit deduction failed:', err));
+    }).catch((err) => {
+      console.error('[Woffle] Post-stream processing failed:', err);
+    });
+
+    // Keep worker alive for cache write + credit deduction
+    if (ctx?.waitUntil) {
+      ctx.waitUntil(afterStream);
+    }
+
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
+    });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error('[Woffle] Classification failed:', message);
-    return json({ error: 'classification_failed', detail: message }, 502);
+    // Streaming setup failed — fall back to non-streaming
+    console.error('[Woffle] Streaming failed, falling back:', err);
+
+    try {
+      const segments = await classifyFullTranscript(
+        transcript_chunks, env, video_title, video_duration_seconds
+      );
+
+      // Cache and deduct (fire-and-forget)
+      cacheAnalysis(video_id, segments, 'claude-sonnet-4-5-20241022', userId, env, video_title, video_duration_seconds)
+        .catch((err) => console.error('[Woffle] Cache write failed:', err));
+      deductCredit(userId, video_id, env)
+        .catch((err) => console.error('[Woffle] Credit deduction failed:', err));
+
+      return json({
+        segments,
+        from_cache: false,
+        prompt_version: env.PROMPT_VERSION,
+      });
+    } catch (fallbackErr) {
+      const message = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+      console.error('[Woffle] Classification failed:', message);
+      return json({ error: 'classification_failed', detail: message }, 502);
+    }
   }
-
-  // 6. Store in shared cache (fire-and-forget — don't block the response)
-  cacheAnalysis(video_id, segments, null, userId, env, video_title, video_duration_seconds)
-    .catch((err) => console.error('[Woffle] Cache write failed:', err));
-
-  // 7. Deduct credit
-  try {
-    await deductCredit(userId, video_id, env);
-  } catch (err) {
-    // Credit deduction failed — log but still return the result.
-    // The user already got the analysis; we'll reconcile later.
-    console.error('[Woffle] Credit deduction failed:', err);
-  }
-
-  // 8. Return
-  return json({
-    segments,
-    from_cache: false,
-    prompt_version: env.PROMPT_VERSION,
-  });
 }
 
 /**

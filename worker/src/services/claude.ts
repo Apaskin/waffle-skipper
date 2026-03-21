@@ -1,7 +1,10 @@
-// claude.ts — Claude API client + the confidence-scoring system prompt.
-// This is the single place that calls the Anthropic API. The prompt is
-// versioned via PROMPT_VERSION so we can invalidate the shared cache
-// when the prompt improves.
+// claude.ts — Claude API client for woffle classification.
+// Two-pass architecture:
+//   Pass 1 (Quick): Haiku analyses first 90s for intro detection (~1-2s)
+//   Pass 2 (Full):  Sonnet analyses full transcript with streaming (~10-15s)
+//
+// PROMPT_VERSION in wrangler.toml must be bumped whenever the prompt changes
+// so stale cache entries are bypassed and re-analysed.
 
 import type { Env } from '../index';
 
@@ -14,146 +17,248 @@ export interface TranscriptChunk {
 export interface ScoredSegment {
   start: number;
   end: number;
-  waffle_confidence: number;
+  woffle_confidence: number;
   category: string;
   label: string;
 }
 
-// The exact system prompt. Changes here MUST be accompanied by a
-// PROMPT_VERSION bump in wrangler.toml so stale cache entries are
-// bypassed and re-analysed with the new prompt.
-//
-// v2.0 — Topic-anchored scoring. Identifies the video topic first, then
-//         scores each segment against it. Adds category granularity
-//         (pleasantries, cohost_echo, context), explicit podcast/interview
-//         rules for co-host filler, and an assertive calibration nudge.
-const SYSTEM_PROMPT = `You analyse YouTube video transcripts to detect filler content ("waffle") that wastes the viewer's time.
+export interface QuickIntroResult {
+  intro_ends_at: number;
+  intro_type: string;
+  topic_starts: string;
+}
 
-STEP 1: Read the full transcript. Identify the VIDEO TOPIC — what is this video actually about? State it in one sentence. This is your anchor for all classification: keep things the video IS ABOUT, cut everything else.
+// ============================================================
+// Models
+// ============================================================
 
-STEP 2: For each segment, assign a waffle_confidence score (0-100) based on how relevant it is to the VIDEO TOPIC:
+const HAIKU_MODEL = 'claude-haiku-4-5-20251001';
+const SONNET_MODEL = 'claude-sonnet-4-5-20241022';
 
-95-100 DEFINITE WAFFLE — zero relation to the video topic:
+// ============================================================
+// Quick Intro Scan Prompt (Haiku)
+// ============================================================
+
+const QUICK_INTRO_PROMPT = `You detect where a YouTube video's actual content begins.
+The intro typically contains: greetings, pleasantries, weather chat,
+"hope you're doing well", sponsor reads, "before we get into it" padding,
+channel branding, subscribe requests.
+
+Given the first 90 seconds of transcript, find where the REAL CONTENT
+starts — the first moment the speaker discusses the actual video topic.
+
+Respond with ONLY this JSON (no other text):
+{"intro_ends_at": <seconds>, "intro_type": "pleasantries|sponsor|branding|none", "topic_starts": "brief description of what the real content is about"}
+
+If the video jumps straight into content with no intro padding,
+respond: {"intro_ends_at": 0, "intro_type": "none", "topic_starts": "..."}`;
+
+// ============================================================
+// Full Classification Prompt (Sonnet)
+// ============================================================
+// v3.0 — Single-pass full-transcript analysis with natural segmentation.
+//         Sonnet 4.5 for nuanced relevance judgement. Aggressive woffle
+//         detection with co-host/podcast rules.
+
+const FULL_SYSTEM_PROMPT = `You analyse YouTube video transcripts to detect filler content ("woffle") — anything that wastes the viewer's time.
+
+STEP 1: Read the video title and full transcript. Identify the VIDEO TOPIC in one sentence. This is your anchor — everything is judged against it.
+
+STEP 2: Create natural segments based on content shifts (NOT fixed time intervals). Each segment should be one coherent block: a greeting, an anecdote, a teaching section, a sponsor read, etc. Segments can be 10 seconds to several minutes.
+
+STEP 3: Score each segment's woffle_confidence (0-100):
+
+95-100 DEFINITE WOFFLE:
 - Sponsor reads, ad segments, paid promotions
 - "Like and subscribe", "hit the bell", "leave a comment below"
 - Patreon, merch, social media plugs
-- Channel branding intros/outros with no content
+- Channel branding intros/outros with zero content
 
-80-94 STRONG WAFFLE — not about the topic:
+85-94 STRONG WOFFLE:
 - Generic pleasantries: "hope you're having a great day", weather chat, "how's everyone doing"
-- Personal life updates unrelated to the topic: what they ate, their commute, weekend plans
-- "Before we get into it..." padding that doesn't actually get into it
-- Repetition of something already said (same point, rephrased)
+- Personal life updates unrelated to topic: what they ate, their commute, weekend plans
+- "Before we get into it..." padding that doesn't get into anything
+- Repetition of something already covered (same point rephrased)
 - Thanking other creators, shoutouts unrelated to content
-- Co-host/sidekick reactions that add no substance: "yeah totally", "that's crazy", "wow", "right right right"
-- Co-host echoing or rephrasing what the main speaker just said without adding new information ("So basically what you're saying is..." then repeating the same point)
+- Co-host reactions that add nothing: "wow", "that's crazy", "yeah totally", "right right right"
+- Co-host echoing/rephrasing what the main speaker just said without new information
+- Co-host tangents and musings that nobody came to hear
 
-60-79 PROBABLE WAFFLE — loosely related tangent:
-- Personal anecdotes that are entertaining but don't advance the topic
-- Extended examples that repeat a point already made
+70-84 PROBABLE WOFFLE:
+- Personal anecdotes entertaining but not advancing the topic
+- Extended examples repeating a point already made
 - Off-topic digressions that eventually circle back
-- Overly long context-setting that could have been shorter
+- Overly long context-setting that could be 80% shorter
 
-40-59 BORDERLINE — debatable relevance:
-- Background context some viewers might want
-- Stories that illustrate the point but take longer than necessary
-- Introductions of people/concepts needed later but done slowly
+50-69 BORDERLINE:
+- Background context some viewers want, others don't
+- Stories illustrating the point but taking too long
+- Slow introductions of people/concepts needed later
 
-20-39 MOSTLY SUBSTANCE — relevant with minor padding:
-- On-topic but slightly verbose
-- Good content with some filler words or hedging
+25-49 MOSTLY SUBSTANCE:
+- On-topic but slightly verbose or meandering
+- Good content with minor padding
 
-0-19 PURE SUBSTANCE — core content:
-- Direct teaching, arguments, insights, facts about the topic
-- Key stories that ARE the content (not illustrations of it)
-- Essential context without which the topic makes no sense
-- Conclusions, summaries, actionable takeaways
+0-24 PURE SUBSTANCE:
+- Core content directly about the video topic
+- Key stories that ARE the content
+- Essential context, conclusions, actionable takeaways
+- Questions from interviewer/co-host that genuinely advance the conversation
 
-STEP 3: Also classify each segment's category. Use exactly one of:
+PODCAST/INTERVIEW RULES:
+- Identify the PRIMARY speaker (guest, expert, storyteller). Their on-topic content is almost always substance.
+- Co-hosts/interviewers who merely react, echo, or rephrase = woffle (85-90).
+- Co-hosts who ask NEW questions or introduce NEW information = substance.
+- Test: if you removed this segment, would the viewer miss any information? If no → woffle.
+
+CRITICAL RULES:
+- Be AGGRESSIVE about detecting woffle. Viewers came for the topic, not padding.
+- A typical 10-minute video has 2-4 minutes of woffle. If you find zero, you're too lenient.
+- Every second of the video must be covered — no gaps between segments.
+- Merge adjacent segments with similar scores (within 10 points).
+- Create your own segment boundaries based on natural content shifts — do NOT use fixed-length segments. A segment should be one coherent block of content: a complete anecdote, a sponsor read, a greeting sequence, a teaching section, etc. Segments can range from 10 seconds to several minutes depending on content.
+
+Classify each segment's category (exactly one):
 - "sponsor" — paid promotion or ad read
 - "self_promo" — subscribe, bell, merch, patreon, social plugs
-- "pleasantries" — greetings, weather, "hope you're well", generic chat
+- "pleasantries" — greetings, weather, hope you're well, generic chat
 - "tangent" — off-topic story or digression
 - "repetition" — restating something already covered
-- "cohost_echo" — co-host repeating, echoing, or reacting without adding substance
-- "filler" — ums, dead air, "so yeah", padding
-- "intro_outro" — channel branding, opening/closing sequences
+- "cohost_echo" — co-host repeating, reacting, or echoing without substance
+- "filler" — ums, dead air, "so yeah", padding words
+- "intro_outro" — channel branding, opening/closing sequences with no content
 - "context" — background info, setup for the main topic
 - "substance" — core content about the video topic
 
-PODCAST/INTERVIEW RULES:
-- In multi-speaker videos, identify the PRIMARY speaker (the guest, expert, or person with the interesting story). Their on-topic content is almost always substance.
-- Co-hosts, interviewers, and sidekicks who merely react ("wow", "that's insane", "right right right"), echo what was just said, or rephrase the primary speaker's points without adding NEW information should be classified as cohost_echo (confidence 80-90).
-- Co-hosts who ask genuinely new questions, challenge a point, or introduce new information ARE substance.
-- The test: if you removed the co-host's segment, would the viewer miss any information? If no, it's waffle.
+Respond ONLY with valid JSON. No markdown, no explanation, no preamble.
 
-Respond ONLY with valid JSON. No other text, no markdown fences, no explanation.
+Format:
+{"video_topic": "one sentence about what this video covers", "segments": [{"start": 0, "end": 45, "woffle_confidence": 92, "category": "pleasantries", "label": "Host greets viewers and chats about the weather"}, ...]}`;
 
-First line: {"video_topic": "one sentence description of what this video is about"}
-Then a JSON array of segments:
-[{"start": 0, "end": 30, "waffle_confidence": 85, "category": "pleasantries", "label": "Host greets viewers and talks about the weather"}, ...]
+// ============================================================
+// Quick Intro Scan (Haiku — 1-2 seconds)
+// ============================================================
+// Detects where the intro ends so we can skip it immediately
+// while the full Sonnet analysis streams in the background.
+// No credit cost, not cached.
 
-RULES:
-- Every second of the transcript must be covered — no gaps between segments.
-- Merge adjacent segments with the same classification (within 10 points of confidence).
-- Short segments (under 10 seconds) should be merged with their neighbours.
-- Be AGGRESSIVE about detecting waffle — viewers came for the topic, not the padding.
-- A 10-minute video typically has 2-4 minutes of waffle. If you're finding zero waffle, you're being too lenient.
-- Use the video title (provided in the user message) as a strong signal for what the video is about.`;
-
-// Model fallback candidates — try each in order until one works
-const MODEL_CANDIDATES = [
-  'claude-haiku-4-5-20251001',
-  'claude-haiku-4-5-latest',
-  'claude-3-5-haiku-latest',
-];
-
-/**
- * Send transcript chunks to Claude and get back confidence-scored segments.
- * Handles model fallback and response parsing.
- *
- * @param videoTitle — optional YouTube video title, passed to Claude as a
- *   strong signal for what the video is about (topic anchor).
- */
-export async function classifyTranscript(
+export async function classifyIntroQuick(
   chunks: TranscriptChunk[],
   env: Env,
   videoTitle?: string
-): Promise<ScoredSegment[]> {
-  const BATCH_SIZE = 40;
-  const allSegments: ScoredSegment[] = [];
-
-  // Process in batches of 40 chunks to stay within context limits
-  for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
-    const batch = chunks.slice(i, i + BATCH_SIZE);
-    const batchResult = await classifyBatch(batch, env, videoTitle);
-    allSegments.push(...batchResult);
+): Promise<QuickIntroResult> {
+  // Only send first 90 seconds of transcript
+  const first90s = chunks.filter(c => c.start < 90);
+  if (first90s.length === 0) {
+    return { intro_ends_at: 0, intro_type: 'none', topic_starts: '' };
   }
 
-  // Merge adjacent segments with same category and similar confidence
-  return mergeAdjacentSegments(allSegments);
-}
-
-async function classifyBatch(
-  chunks: TranscriptChunk[],
-  env: Env,
-  videoTitle?: string
-): Promise<ScoredSegment[]> {
-  // Build the user message — include video title as topic anchor when available
-  const chunkText = chunks
-    .map(
-      (c, i) =>
-        `[${fmtTime(c.start)} - ${fmtTime(c.end)}] ${c.text}`
-    )
-    .join('\n\n');
+  const chunkText = first90s
+    .map(c => `[${fmtTime(c.start)}] ${c.text}`)
+    .join('\n');
 
   const titleLine = videoTitle ? `Video title: "${videoTitle}"\n\n` : '';
-  const userMessage = `${titleLine}Transcript:\n${chunkText}`;
+  const userMessage = `${titleLine}First 90 seconds of transcript:\n${chunkText}`;
 
-  // Try each model candidate until one succeeds
-  let lastError: Error | null = null;
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': env.ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: HAIKU_MODEL,
+      max_tokens: 256,
+      system: QUICK_INTRO_PROMPT,
+      messages: [{ role: 'user', content: userMessage }],
+    }),
+  });
 
-  for (const model of MODEL_CANDIDATES) {
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Quick scan failed: ${response.status}: ${errText}`);
+  }
+
+  const data = (await response.json()) as {
+    content?: Array<{ type: string; text?: string }>;
+  };
+
+  const text = (data.content || [])
+    .filter(b => b.type === 'text' && typeof b.text === 'string')
+    .map(b => b.text!)
+    .join('')
+    .trim();
+
+  if (!text) {
+    return { intro_ends_at: 0, intro_type: 'none', topic_starts: '' };
+  }
+
+  try {
+    const cleaned = text
+      .replace(/^```json\s*/i, '')
+      .replace(/^```\s*/i, '')
+      .replace(/\s*```$/, '')
+      .trim();
+    const parsed = JSON.parse(cleaned);
+    return {
+      intro_ends_at: Number(parsed.intro_ends_at) || 0,
+      intro_type: String(parsed.intro_type || 'none'),
+      topic_starts: String(parsed.topic_starts || ''),
+    };
+  } catch {
+    return { intro_ends_at: 0, intro_type: 'none', topic_starts: '' };
+  }
+}
+
+// ============================================================
+// Full Classification with Streaming (Sonnet — 10-15 seconds)
+// ============================================================
+// Sends the ENTIRE transcript in one call to Sonnet 4.5 with stream: true.
+// Returns a ReadableStream of SSE events that the worker route pipes
+// directly to the client. Segments are emitted incrementally as they're
+// parsed from the streaming response.
+//
+// SSE event types:
+//   event: topic    — {"video_topic": "..."}
+//   event: segment  — {"start": N, "end": N, "woffle_confidence": N, ...}
+//   event: done     — {"total_segments": N}
+//   event: error    — {"error": "message"}
+
+export function classifyFullTranscriptStreaming(
+  chunks: TranscriptChunk[],
+  env: Env,
+  videoTitle?: string,
+  videoDurationSeconds?: number
+): { stream: ReadableStream; segmentsPromise: Promise<ScoredSegment[]> } {
+  // Build the full transcript as a single timestamped block.
+  // Sonnet sees the whole video context, enabling much better topic-anchored
+  // classification than the old chunk-by-chunk approach.
+  const chunkText = chunks
+    .map(c => `[${fmtTime(c.start)}] ${c.text}`)
+    .join('\n');
+
+  const titleLine = videoTitle ? `Video title: "${videoTitle}"\n` : '';
+  const durationLine = videoDurationSeconds
+    ? `Video duration: ${Math.round(videoDurationSeconds / 60)} minutes\n`
+    : '';
+  const userMessage = `${titleLine}${durationLine}\nFull transcript:\n${chunkText}`;
+
+  // Accumulate all segments for caching after stream completes
+  const allSegments: ScoredSegment[] = [];
+  let resolveSegments: (segments: ScoredSegment[]) => void;
+  let rejectSegments: (err: Error) => void;
+  const segmentsPromise = new Promise<ScoredSegment[]>((resolve, reject) => {
+    resolveSegments = resolve;
+    rejectSegments = reject;
+  });
+
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  const encoder = new TextEncoder();
+
+  // Process the Anthropic stream in the background
+  (async () => {
     try {
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -163,86 +268,334 @@ async function classifyBatch(
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
-          model,
+          model: SONNET_MODEL,
           max_tokens: 4096,
-          system: SYSTEM_PROMPT,
+          stream: true,
+          system: FULL_SYSTEM_PROMPT,
           messages: [{ role: 'user', content: userMessage }],
         }),
       });
 
       if (!response.ok) {
         const errText = await response.text();
-        // If model not found, try the next candidate
-        if (
-          response.status === 404 ||
-          errText.toLowerCase().includes('not found') ||
-          errText.toLowerCase().includes('does not exist')
-        ) {
-          lastError = new Error(`Model ${model} unavailable`);
-          continue;
-        }
-        throw new Error(`Claude API ${response.status}: ${errText}`);
+        const errorMsg = `API ${response.status}: ${errText}`;
+        await writer.write(encoder.encode(
+          `event: error\ndata: ${JSON.stringify({ error: errorMsg })}\n\n`
+        ));
+        await writer.close();
+        rejectSegments!(new Error(errorMsg));
+        return;
       }
 
-      const data = (await response.json()) as {
-        content?: Array<{ type: string; text?: string }>;
-      };
+      // Read the Anthropic SSE stream and extract text deltas.
+      // Claude's streaming format sends content_block_delta events
+      // with delta.text containing the next chunk of generated text.
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let sseBuffer = '';
+      let fullText = '';
+      let emittedSegments = 0;
+      let topicEmitted = false;
 
-      const text = (data.content || [])
-        .filter((b) => b.type === 'text' && typeof b.text === 'string')
-        .map((b) => b.text!)
-        .join('\n')
-        .trim();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-      if (!text) throw new Error('Empty Claude response');
+        sseBuffer += decoder.decode(value, { stream: true });
 
-      return parseSegments(text);
+        // Process complete SSE lines from the Anthropic stream
+        const lines = sseBuffer.split('\n');
+        sseBuffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const jsonStr = line.slice(6).trim();
+          if (jsonStr === '[DONE]') continue;
+
+          try {
+            const event = JSON.parse(jsonStr);
+            if (event.type === 'content_block_delta' && event.delta?.text) {
+              fullText += event.delta.text;
+
+              // Try to parse segments incrementally from accumulated text
+              const parseResult = parseIncremental(fullText, emittedSegments, topicEmitted);
+
+              // Emit topic as soon as we find it
+              if (parseResult.topic && !topicEmitted) {
+                topicEmitted = true;
+                await writer.write(encoder.encode(
+                  `event: topic\ndata: ${JSON.stringify({ video_topic: parseResult.topic })}\n\n`
+                ));
+              }
+
+              // Emit any newly parsed segments
+              for (let i = emittedSegments; i < parseResult.segments.length; i++) {
+                const seg = parseResult.segments[i];
+                allSegments.push(seg);
+                await writer.write(encoder.encode(
+                  `event: segment\ndata: ${JSON.stringify(seg)}\n\n`
+                ));
+                emittedSegments++;
+              }
+            }
+          } catch {
+            // Skip malformed JSON lines — normal during streaming
+          }
+        }
+      }
+
+      // Final parse to catch any remaining segments the incremental parser missed
+      const finalResult = parseFinal(fullText);
+      for (let i = emittedSegments; i < finalResult.segments.length; i++) {
+        const seg = finalResult.segments[i];
+        allSegments.push(seg);
+        await writer.write(encoder.encode(
+          `event: segment\ndata: ${JSON.stringify(seg)}\n\n`
+        ));
+      }
+
+      if (!topicEmitted && finalResult.topic) {
+        await writer.write(encoder.encode(
+          `event: topic\ndata: ${JSON.stringify({ video_topic: finalResult.topic })}\n\n`
+        ));
+      }
+
+      // Merge adjacent segments before caching — the final merged set is what
+      // gets stored in the shared cache for all users.
+      const merged = mergeAdjacentSegments(
+        finalResult.segments.length > allSegments.length
+          ? finalResult.segments
+          : allSegments
+      );
+
+      await writer.write(encoder.encode(
+        `event: done\ndata: ${JSON.stringify({ total_segments: merged.length })}\n\n`
+      ));
+      await writer.close();
+
+      resolveSegments!(merged);
     } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err));
-      // Only continue to next model on model-availability errors
-      if (!lastError.message.includes('unavailable')) throw lastError;
+      const message = err instanceof Error ? err.message : String(err);
+      try {
+        await writer.write(encoder.encode(
+          `event: error\ndata: ${JSON.stringify({ error: message })}\n\n`
+        ));
+        await writer.close();
+      } catch {
+        // Writer already closed
+      }
+      rejectSegments!(err instanceof Error ? err : new Error(message));
     }
-  }
+  })();
 
-  throw lastError || new Error('All model candidates failed');
+  return { stream: readable, segmentsPromise };
 }
 
-/**
- * Parse Claude's JSON response into typed ScoredSegment array.
- * Handles the v2 response format:
- *   {"video_topic": "..."}
- *   [{"start": 0, "end": 30, ...}, ...]
- * Also handles markdown fences, stray text, single JSON array, etc.
- */
-function parseSegments(text: string): ScoredSegment[] {
+// ============================================================
+// Non-streaming fallback
+// ============================================================
+// Used when streaming fails or for backwards compatibility.
+// Sends full transcript to Sonnet and waits for the complete response.
+
+export async function classifyFullTranscript(
+  chunks: TranscriptChunk[],
+  env: Env,
+  videoTitle?: string,
+  videoDurationSeconds?: number
+): Promise<ScoredSegment[]> {
+  const chunkText = chunks
+    .map(c => `[${fmtTime(c.start)}] ${c.text}`)
+    .join('\n');
+
+  const titleLine = videoTitle ? `Video title: "${videoTitle}"\n` : '';
+  const durationLine = videoDurationSeconds
+    ? `Video duration: ${Math.round(videoDurationSeconds / 60)} minutes\n`
+    : '';
+  const userMessage = `${titleLine}${durationLine}\nFull transcript:\n${chunkText}`;
+
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': env.ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: SONNET_MODEL,
+      max_tokens: 4096,
+      system: FULL_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: userMessage }],
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Claude API ${response.status}: ${errText}`);
+  }
+
+  const data = (await response.json()) as {
+    content?: Array<{ type: string; text?: string }>;
+  };
+
+  const text = (data.content || [])
+    .filter(b => b.type === 'text' && typeof b.text === 'string')
+    .map(b => b.text!)
+    .join('\n')
+    .trim();
+
+  if (!text) throw new Error('Empty Claude response');
+
+  const result = parseFinal(text);
+  return mergeAdjacentSegments(result.segments);
+}
+
+// ============================================================
+// Incremental JSON Parser
+// ============================================================
+// Extracts segments from partially complete Claude output.
+// Tracks brace depth to detect complete {...} objects within
+// the segments array as they stream in.
+
+function parseIncremental(
+  text: string,
+  alreadyParsed: number,
+  topicParsed: boolean
+): { topic: string | null; segments: ScoredSegment[] } {
+  let topic: string | null = null;
+  const segments: ScoredSegment[] = [];
+
   const cleaned = text
     .replace(/^```json\s*/i, '')
     .replace(/^```\s*/i, '')
     .replace(/\s*```$/, '')
     .trim();
 
-  // Extract the JSON array (skip the video_topic line if present)
-  const arrayMatch = cleaned.match(/\[[\s\S]*\]/);
-  if (!arrayMatch) throw new Error('No JSON array in Claude response');
+  // Extract video_topic
+  if (!topicParsed) {
+    const topicMatch = cleaned.match(/"video_topic"\s*:\s*"([^"]+)"/);
+    if (topicMatch) topic = topicMatch[1];
+  }
 
-  const parsed = JSON.parse(arrayMatch[0]) as unknown[];
+  // Find the segments array
+  const segArrayMatch = cleaned.match(/"segments"\s*:\s*\[/);
+  if (!segArrayMatch) return { topic, segments };
 
-  return parsed
-    .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
-    .map((item) => ({
-      start: Number(item.start) || 0,
-      end: Number(item.end) || 0,
-      waffle_confidence: Math.min(100, Math.max(0, Number(item.waffle_confidence) || 0)),
-      category: String(item.category || 'substance'),
-      label: String(item.label || ''),
-    }));
+  const arrayStart = cleaned.indexOf('[', segArrayMatch.index!);
+  if (arrayStart === -1) return { topic, segments };
+
+  // Extract complete segment objects by tracking brace depth
+  let depth = 0;
+  let objStart = -1;
+
+  for (let i = arrayStart + 1; i < cleaned.length; i++) {
+    const ch = cleaned[i];
+
+    // Skip string contents to avoid counting braces inside strings
+    if (ch === '"') {
+      i++;
+      while (i < cleaned.length && cleaned[i] !== '"') {
+        if (cleaned[i] === '\\') i++;
+        i++;
+      }
+      continue;
+    }
+
+    if (ch === '{') {
+      if (depth === 0) objStart = i;
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0 && objStart >= 0) {
+        const objStr = cleaned.substring(objStart, i + 1);
+        try {
+          const obj = JSON.parse(objStr);
+          segments.push({
+            start: Number(obj.start) || 0,
+            end: Number(obj.end) || 0,
+            woffle_confidence: Math.min(100, Math.max(0, Number(obj.woffle_confidence) || 0)),
+            category: String(obj.category || 'substance'),
+            label: String(obj.label || ''),
+          });
+        } catch {
+          // Incomplete or malformed — skip
+        }
+        objStart = -1;
+      }
+    }
+  }
+
+  return { topic, segments };
 }
 
-/**
- * Merge adjacent segments with the same category and close confidence scores.
- * Keeps the segment list compact without losing resolution.
- */
-function mergeAdjacentSegments(segments: ScoredSegment[]): ScoredSegment[] {
+// ============================================================
+// Final JSON Parser
+// ============================================================
+// Extracts all segments from the complete response. More robust
+// than incremental since we have the full text.
+
+function parseFinal(text: string): { topic: string; segments: ScoredSegment[] } {
+  const cleaned = text
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/\s*```$/, '')
+    .trim();
+
+  let topic = '';
+
+  // Try to parse as a single JSON object first (ideal case)
+  try {
+    const parsed = JSON.parse(cleaned);
+    if (parsed.video_topic) topic = parsed.video_topic;
+    if (Array.isArray(parsed.segments)) {
+      return {
+        topic,
+        segments: parsed.segments.map((item: Record<string, unknown>) => ({
+          start: Number(item.start) || 0,
+          end: Number(item.end) || 0,
+          woffle_confidence: Math.min(100, Math.max(0, Number(item.woffle_confidence) || 0)),
+          category: String(item.category || 'substance'),
+          label: String(item.label || ''),
+        })),
+      };
+    }
+  } catch {
+    // Fall through to regex extraction
+  }
+
+  // Extract topic via regex
+  const topicMatch = cleaned.match(/"video_topic"\s*:\s*"([^"]+)"/);
+  if (topicMatch) topic = topicMatch[1];
+
+  // Extract segments array via regex
+  const arrayMatch = cleaned.match(/\[[\s\S]*\]/);
+  if (!arrayMatch) return { topic, segments: [] };
+
+  try {
+    const parsed = JSON.parse(arrayMatch[0]) as unknown[];
+    return {
+      topic,
+      segments: parsed
+        .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
+        .map(item => ({
+          start: Number(item.start) || 0,
+          end: Number(item.end) || 0,
+          woffle_confidence: Math.min(100, Math.max(0, Number(item.woffle_confidence) || 0)),
+          category: String(item.category || 'substance'),
+          label: String(item.label || ''),
+        })),
+    };
+  } catch {
+    return { topic, segments: [] };
+  }
+}
+
+// ============================================================
+// Segment Merging
+// ============================================================
+// Merge adjacent segments with the same category and close confidence
+// scores. Keeps the segment list compact without losing resolution.
+
+export function mergeAdjacentSegments(segments: ScoredSegment[]): ScoredSegment[] {
   if (segments.length === 0) return [];
 
   const sorted = [...segments].sort((a, b) => a.start - b.start);
@@ -253,13 +606,13 @@ function mergeAdjacentSegments(segments: ScoredSegment[]): ScoredSegment[] {
     const prev = merged[merged.length - 1];
     const gap = curr.start - prev.end;
     const sameCat = curr.category === prev.category;
-    const closeConf = Math.abs(curr.waffle_confidence - prev.waffle_confidence) <= 15;
+    const closeConf = Math.abs(curr.woffle_confidence - prev.woffle_confidence) <= 15;
 
     if (sameCat && closeConf && gap <= 2) {
       // Merge: extend end, average confidence, keep longer label
       prev.end = Math.max(prev.end, curr.end);
-      prev.waffle_confidence = Math.round(
-        (prev.waffle_confidence + curr.waffle_confidence) / 2
+      prev.woffle_confidence = Math.round(
+        (prev.woffle_confidence + curr.woffle_confidence) / 2
       );
       if (curr.label.length > prev.label.length) {
         prev.label = curr.label;
@@ -271,6 +624,10 @@ function mergeAdjacentSegments(segments: ScoredSegment[]): ScoredSegment[] {
 
   return merged;
 }
+
+// ============================================================
+// Utility
+// ============================================================
 
 function fmtTime(sec: number): string {
   const m = Math.floor(sec / 60);

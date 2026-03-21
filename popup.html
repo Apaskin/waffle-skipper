@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="popup.css">
-  <title>Waffle Skipper</title>
+  <title>Woffle</title>
 </head>
 <body>
   <!-- CRT scanline overlay — the subtle horizontal lines that sell the retro feel -->
@@ -41,16 +41,44 @@
           <span class="intensity-icon">🟢</span>
           <span class="intensity-name">LIGHT</span>
           <span class="intensity-hint">Trim fat</span>
+          <!-- Tooltip shown on 500ms hover -->
+          <div class="intensity-tooltip" id="tooltip-light">
+            <div class="intensity-tooltip-title">LIGHT MODE</div>
+            <div class="intensity-tooltip-body">
+              <span class="tt-cut">✂️ Skips:</span> Sponsors, ads, subscribe pleas, merch plugs<br>
+              <span class="tt-keep">✅ Keeps:</span> Everything else including tangents and stories<br>
+              <span class="tt-best">Best for:</span> Casual watching — just remove the obvious stuff
+            </div>
+            <div class="intensity-tooltip-arrow"></div>
+          </div>
         </button>
         <button class="intensity-btn active" id="int-medium" data-intensity="medium">
           <span class="intensity-icon">🟡</span>
           <span class="intensity-name">MEDIUM</span>
           <span class="intensity-hint">Get to point</span>
+          <div class="intensity-tooltip" id="tooltip-medium">
+            <div class="intensity-tooltip-title">MEDIUM MODE</div>
+            <div class="intensity-tooltip-body">
+              <span class="tt-cut">✂️ Skips:</span> Everything in Light PLUS off-topic tangents, co-host filler, repetition, long intros, padding<br>
+              <span class="tt-keep">✅ Keeps:</span> Core content, relevant stories, good questions<br>
+              <span class="tt-best">Best for:</span> Focused watching — get to the point faster
+            </div>
+            <div class="intensity-tooltip-arrow"></div>
+          </div>
         </button>
         <button class="intensity-btn" id="int-heavy" data-intensity="heavy">
           <span class="intensity-icon">🔴</span>
           <span class="intensity-name">HEAVY</span>
           <span class="intensity-hint">Just substance</span>
+          <div class="intensity-tooltip" id="tooltip-heavy">
+            <div class="intensity-tooltip-title">HEAVY MODE</div>
+            <div class="intensity-tooltip-body">
+              <span class="tt-cut">✂️ Skips:</span> Everything in Medium PLUS all anecdotes, banter, context-setting, background info, co-host commentary<br>
+              <span class="tt-keep">✅ Keeps:</span> Only the core substance — facts, arguments, insights<br>
+              <span class="tt-best">Best for:</span> Research mode — extract pure information only
+            </div>
+            <div class="intensity-tooltip-arrow"></div>
+          </div>
         </button>
       </div>
     </section>
@@ -69,7 +97,7 @@
       <div class="panel-label">HIGH SCORE</div>
       <div class="score-grid">
         <div class="score-cell">
-          <div class="score-label">WAFFLES FOUND</div>
+          <div class="score-label">WOFFLES FOUND</div>
           <div class="score-value gold" id="stat-waffle-count">--</div>
         </div>
         <div class="score-cell">
@@ -77,7 +105,7 @@
           <div class="score-value gold" id="stat-time-saveable">--</div>
         </div>
         <div class="score-cell">
-          <div class="score-label">WAFFLES ZAPPED</div>
+          <div class="score-label">WOFFLES ZAPPED</div>
           <div class="score-value green" id="stat-skipped">--</div>
         </div>
         <div class="score-cell">
@@ -85,10 +113,10 @@
           <div class="score-value green" id="stat-time-saved">--</div>
         </div>
       </div>
-      <!-- Waffle vs substance ratio bar -->
+      <!-- Woffle vs substance ratio bar -->
       <div class="ratio-bar-label">
         <span class="ratio-text-green">SUBSTANCE</span>
-        <span class="ratio-text-orange">WAFFLE</span>
+        <span class="ratio-text-orange">WOFFLE</span>
       </div>
       <div class="ratio-bar" id="ratio-bar">
         <div class="ratio-fill-substance" id="ratio-substance" style="width:100%"></div>

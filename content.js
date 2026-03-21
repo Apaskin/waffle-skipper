@@ -1,8 +1,10 @@
-// content.js — Waffle Skipper content script (ISOLATED world)
+// content.js — Woffle content script (ISOLATED world)
 // Injected on YouTube pages. Handles:
 // - Video ID detection and YouTube SPA navigation
 // - Receiving caption track URLs from page-extractor.js (MAIN world)
-// - Timeline overlay rendering (green=substance, orange=waffle)
+// - Timeline overlay rendering (green=substance, orange=woffle)
+// - Incremental timeline building as segments stream from Sonnet
+// - Quick intro skip from Haiku pass
 // - Auto-skip logic (toggleable via popup)
 // - Manual SCAN button near YouTube controls
 // - Communication with background service worker for backend API calls
@@ -19,7 +21,7 @@
   let isAnalyzing = false;         // Whether analysis is in progress
   let analysisError = null;        // Error message if analysis failed
 
-  // P1-5: Auto-skip toggle — loaded from chrome.storage.sync, defaults to true.
+  // Auto-skip toggle — loaded from chrome.storage.sync, defaults to true.
   // Updated live when the user toggles in the popup via storage change listener.
   let autoSkipEnabled = true;
 
@@ -34,15 +36,15 @@
 
   // Cooldown flag to prevent double-skipping
   let skipCooldown = false;
-  // When user manually jumps backward into waffle, temporarily bypass auto-skip
+  // When user manually jumps backward into woffle, temporarily bypass auto-skip
   let bypassAutoSkipUntil = 0;
 
-  // Intensity threshold — determines what confidence score counts as "waffle".
+  // Intensity threshold — determines what confidence score counts as "woffle".
   // Maps to the three intensity levels:
   //   light (80+), medium (50+, default), heavy (25+)
-  // Both waffleThreshold and currentIntensity are kept in sync — the threshold
-  // is derived from the intensity via getWaffleThreshold().
-  let waffleThreshold = 50;
+  // Both woffleThreshold and currentIntensity are kept in sync — the threshold
+  // is derived from the intensity via getWoffleThreshold().
+  let woffleThreshold = 50;
   let currentIntensity = 'medium';
 
   // References to injected DOM elements (for cleanup)
@@ -51,7 +53,7 @@
   let tooltipEl = null;
 
   // Transcript follower panel — shows the full transcript synced to playback
-  // with waffle segments colour-coded orange + strikethrough.
+  // with woffle segments colour-coded orange + strikethrough.
   let transcriptPanelOpen = false;   // persisted in chrome.storage.sync
   let transcriptPanelEl = null;      // outer container
   let transcriptToggleEl = null;     // 📜 TRANSCRIPT button
@@ -70,14 +72,14 @@
   let latestTranscriptData = null;
   let latestTranscriptVideoId = null;
 
-  console.log('[Waffle Skipper] Content script loaded');
+  console.log('[Woffle] Content script loaded');
 
   // Load persisted preferences on startup
   chrome.storage.sync.get(['autoSkipEnabled', 'woffleIntensity', 'timelineAlwaysVisible', 'transcriptPanelOpen'], (result) => {
     autoSkipEnabled = result.autoSkipEnabled !== false;
     if (result.woffleIntensity) {
       currentIntensity = result.woffleIntensity;
-      waffleThreshold = getWaffleThreshold(currentIntensity);
+      woffleThreshold = getWoffleThreshold(currentIntensity);
     }
     // Only override the default (true) if explicitly set to false in storage
     if (result.timelineAlwaysVisible !== undefined) {
@@ -116,7 +118,7 @@
   // Initialization
   // ============================================================
 
-  // Listen for messages from popup
+  // Listen for messages from popup AND background (streaming results)
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'GET_STATUS') {
       sendResponse(getStatus());
@@ -129,11 +131,33 @@
       // sending this message. Writing here would trigger storage.onChanged, which
       // calls applyIntensity() again, causing a double re-render.
       const intensity = message.intensity || 'medium';
-      console.log(`[Waffle Skipper] SET_INTENSITY received: ${intensity} (segments: ${segments.length})`);
+      console.log(`[Woffle] SET_INTENSITY received: ${intensity} (segments: ${segments.length})`);
       applyIntensity(intensity);
       sendResponse(getStatus());
       return true;
     }
+
+    // ============================================================
+    // Streaming results from background service worker
+    // ============================================================
+
+    if (message.type === 'WOFFLE_QUICK_RESULT') {
+      handleQuickResult(message);
+      return false;
+    }
+    if (message.type === 'WOFFLE_SEGMENT') {
+      handleStreamedSegment(message);
+      return false;
+    }
+    if (message.type === 'WOFFLE_COMPLETE') {
+      handleStreamComplete(message);
+      return false;
+    }
+    if (message.type === 'WOFFLE_ERROR') {
+      handleStreamError(message);
+      return false;
+    }
+
     return false;
   });
 
@@ -145,13 +169,11 @@
   // The extractor intercepts YouTube's own XHR/fetch requests to the
   // timedtext API and captures the transcript response.
   window.addEventListener('message', (event) => {
-    // P0-3 fix: verify origin before trusting message content.
-    // Any page script could post a spoofed 'waffle-skipper-extractor' message;
-    // the origin check ensures we only accept messages from the YouTube page itself.
+    // Verify origin before trusting message content.
     if (event.origin !== 'https://www.youtube.com') return;
     if (event.data && event.data.source === 'waffle-skipper-extractor') {
       const hasTranscript = event.data.transcript && event.data.transcript.events;
-      console.log('[Waffle Skipper] Received from extractor:',
+      console.log('[Woffle] Received from extractor:',
         hasTranscript ? event.data.transcript.events.length + ' events' : 'no transcript',
         event.data.method || '', event.data.videoId || '');
 
@@ -163,7 +185,7 @@
         // If transcript arrives after analysis gave up (YouTube loads captions late),
         // and this is still the current video, auto-trigger analysis
         if (event.data.videoId === currentVideoId && !isAnalyzing && segments.length === 0 && analysisError) {
-          console.log('[Waffle Skipper] Late transcript arrived! Re-triggering analysis...');
+          console.log('[Woffle] Late transcript arrived! Re-triggering analysis...');
           analyzeVideo(currentVideoId);
         }
       }
@@ -181,7 +203,7 @@
     return new Promise((resolve) => {
       // Check if we already have data for this video (arrived via XHR intercept)
       if (latestTranscriptVideoId === videoId && latestTranscriptData) {
-        console.log('[Waffle Skipper] Using already-captured transcript for', videoId);
+        console.log('[Woffle] Using already-captured transcript for', videoId);
         resolve({ transcript: latestTranscriptData, tracks: [], videoId: videoId });
         return;
       }
@@ -189,8 +211,6 @@
       captionResolve = resolve;
 
       // Ask the page extractor if it has captured data for this video.
-      // P1-7 fix: target 'https://www.youtube.com' instead of '*' so other frames
-      // (e.g. ad iframes) can't intercept transcript request messages.
       window.postMessage({ source: 'waffle-skipper-request', videoId: videoId }, 'https://www.youtube.com');
 
       // Timeout after 12 seconds
@@ -235,7 +255,7 @@
       return; // Same video, nothing to do
     }
 
-    console.log(`[Waffle Skipper] New video detected: ${videoId}`);
+    console.log(`[Woffle] New video detected: ${videoId}`);
     currentVideoId = videoId;
 
     // Clean up previous video's UI
@@ -252,8 +272,6 @@
       if (videoId === currentVideoId) {
         injectScanButton();
         injectTranscriptToggle();
-        // The user clicks the SCAN button to trigger analysis (manual trigger).
-        // Smart auto-analyse (if enabled) happens separately based on watch time.
       }
     }, 1000);
   }
@@ -264,8 +282,14 @@
   }
 
   // ============================================================
-  // Analysis Pipeline
+  // Analysis Pipeline — now event-driven (non-blocking)
   // ============================================================
+  // Sends ANALYZE_VIDEO to background, which returns immediately with
+  // {status: 'scanning'}. Results arrive via separate messages:
+  //   WOFFLE_QUICK_RESULT → instant intro skip
+  //   WOFFLE_SEGMENT      → add to segments[], re-render timeline
+  //   WOFFLE_COMPLETE     → finalise, build transcript panel
+  //   WOFFLE_ERROR        → show error state
 
   async function analyzeVideo(videoId) {
     isAnalyzing = true;
@@ -277,41 +301,36 @@
 
     try {
       // Wait for transcript data captured by the page extractor's XHR intercept.
-      // YouTube fetches captions for its player automatically — we just need to
-      // wait for that request to happen and be captured.
       let transcriptData = null;
 
-      // Try up to 6 times with increasing delays.
-      // YouTube may take a moment to fetch captions after the player initializes.
       for (let attempt = 1; attempt <= 6; attempt++) {
         const data = await requestTranscriptData(videoId);
 
         if (data.transcript && data.transcript.events && data.transcript.events.length > 0) {
           transcriptData = data.transcript;
-          console.log(`[Waffle Skipper] Got transcript (attempt ${attempt}): ${transcriptData.events.length} events`);
+          console.log(`[Woffle] Got transcript (attempt ${attempt}): ${transcriptData.events.length} events`);
           break;
         }
 
         if (attempt < 6) {
-          const delay = attempt * 1500; // 1.5s, 3s, 4.5s, 6s, 7.5s
-          console.log(`[Waffle Skipper] No transcript yet (attempt ${attempt}), retrying in ${delay/1000}s...`);
+          const delay = attempt * 1500;
+          console.log(`[Woffle] No transcript yet (attempt ${attempt}), retrying in ${delay/1000}s...`);
           await new Promise(r => setTimeout(r, delay));
         }
       }
 
       if (!transcriptData) {
-        console.warn('[Waffle Skipper] No transcript captured from page extractor; trying background fallback');
+        console.warn('[Woffle] No transcript captured from page extractor; trying background fallback');
       }
 
-      // Grab the video title — it's a strong signal for topic identification.
-      // The worker passes it to Claude so the AI can anchor classification
-      // against what the video is actually about.
+      // Grab the video title for topic identification
       const videoTitle = document.querySelector('yt-formatted-string.ytd-watch-metadata')?.textContent
         || document.querySelector('#title h1')?.textContent
         || document.title.replace(' - YouTube', '')
         || '';
 
-      // Send to background for chunking + Claude classification
+      // Send to background — it fires quick + full scans simultaneously.
+      // Results arrive via WOFFLE_QUICK_RESULT, WOFFLE_SEGMENT, WOFFLE_COMPLETE messages.
       const result = await chrome.runtime.sendMessage({
         type: 'ANALYZE_VIDEO',
         videoId: videoId,
@@ -320,51 +339,152 @@
         videoTitle: videoTitle.trim()
       });
 
-      // Check if the user navigated away while we were analyzing
-      if (videoId !== currentVideoId) {
-        console.log('[Waffle Skipper] Video changed during analysis, discarding results');
-        return;
-      }
-
+      // Check for immediate errors (auth, missing tab, etc.)
       if (result.error) {
-        console.warn(`[Waffle Skipper] Analysis error: ${result.error}`, result.detail || '');
+        console.warn(`[Woffle] Immediate error: ${result.error}`);
         isAnalyzing = false;
-        const normalizedError = normalizeErrorCode(result.error, result.detail);
-        analysisError = normalizedError;
-        showError(normalizedError);
+        analysisError = result.error;
+        showError(result.error);
         return;
       }
 
-      segments = result.segments || [];
-
-      // Normalize legacy segments that only have type ("waffle"/"substance")
-      // but no waffle_confidence score. Synthetic scores ensure the intensity
-      // selector works uniformly: "waffle" → 90 (caught by all levels),
-      // "substance" → 10 (never caught).
-      for (const seg of segments) {
-        if (seg.waffle_confidence === undefined) {
-          seg.waffle_confidence = seg.type === 'waffle' ? 90 : 10;
-        }
-      }
-
-      isAnalyzing = false;
-      console.log(`[Waffle Skipper] Analysis complete: ${segments.length} segments`);
-
-      // Render the timeline and set up skip logic
-      renderTimeline();
+      // result.status === 'scanning' — results will arrive via messages
+      console.log(`[Woffle] Analysis started for ${videoId} — awaiting streaming results`);
       updateScanButtonState();
-      enableAutoSkip();
-
-      // Build and render the transcript follower panel
-      buildTranscriptLines();
-      renderTranscriptPanel();
 
     } catch (err) {
-      console.error('[Waffle Skipper] Analysis failed:', err);
+      console.error('[Woffle] Analysis failed:', err);
       isAnalyzing = false;
       analysisError = 'UNKNOWN_ERROR';
       showError('UNKNOWN_ERROR');
     }
+  }
+
+  // ============================================================
+  // Streaming Result Handlers
+  // ============================================================
+
+  // Handle quick intro scan result from Haiku (arrives in 1-2 seconds).
+  // If we have an intro to skip and auto-skip is on, jump the video immediately.
+  function handleQuickResult(message) {
+    const { introEndsAt, introType, topicStarts } = message;
+
+    if (!introEndsAt || introEndsAt <= 0) return;
+
+    console.log(`[Woffle] Quick scan: intro ends at ${introEndsAt}s (${introType})`);
+
+    // Create a temporary intro segment on the timeline
+    const introSegment = {
+      start: 0,
+      end: introEndsAt,
+      woffle_confidence: 92,
+      category: introType === 'sponsor' ? 'sponsor' : 'pleasantries',
+      label: `Intro: ${topicStarts || introType}`,
+    };
+
+    // Only apply if we don't already have full scan segments
+    if (segments.length === 0) {
+      segments = [introSegment];
+      renderTimeline();
+      enableAutoSkip();
+    }
+
+    // Auto-skip the intro if enabled and user hasn't passed it yet
+    const video = document.querySelector('video');
+    if (video && autoSkipEnabled && video.currentTime < introEndsAt) {
+      video.currentTime = introEndsAt;
+      wafflesZapped++;
+      timeSavedSec += introEndsAt;
+      showSkipNotification(introEndsAt);
+      console.log(`[Woffle] Skipped ${Math.round(introEndsAt)}s intro`);
+    }
+  }
+
+  // Handle individual segment from Sonnet streaming analysis.
+  // Adds to the segments array and re-renders the timeline incrementally.
+  function handleStreamedSegment(message) {
+    const seg = message.segment;
+    if (!seg) return;
+
+    // Normalize: support both woffle_confidence and legacy waffle_confidence
+    if (seg.woffle_confidence === undefined && seg.waffle_confidence !== undefined) {
+      seg.woffle_confidence = seg.waffle_confidence;
+    }
+
+    // Replace quick scan intro segments with real analysis data.
+    // The first full segment arriving means Sonnet is now authoritative.
+    if (segments.length <= 1 && segments[0]?.label?.startsWith('Intro:')) {
+      segments = [];
+    }
+
+    segments.push(seg);
+
+    // Re-render timeline with growing segment list
+    renderTimeline();
+    enableAutoSkip();
+  }
+
+  // Handle stream completion — all segments classified.
+  function handleStreamComplete(message) {
+    isAnalyzing = false;
+    analysisError = null;
+
+    console.log(`[Woffle] Analysis complete: ${segments.length} segments (cache: ${message.fromCache})`);
+
+    // Normalize legacy segments
+    for (const seg of segments) {
+      if (seg.woffle_confidence === undefined && seg.waffle_confidence !== undefined) {
+        seg.woffle_confidence = seg.waffle_confidence;
+      }
+      if (seg.woffle_confidence === undefined) {
+        seg.woffle_confidence = seg.type === 'waffle' ? 90 : 10;
+      }
+    }
+
+    // Final render
+    renderTimeline();
+    updateScanButtonState();
+    enableAutoSkip();
+
+    // Build and render the transcript follower panel
+    buildTranscriptLines();
+    renderTranscriptPanel();
+  }
+
+  // Handle analysis error
+  function handleStreamError(message) {
+    const errorCode = message.error || 'UNKNOWN_ERROR';
+    console.warn(`[Woffle] Stream error: ${errorCode}`, message.detail || '');
+
+    isAnalyzing = false;
+    const normalized = normalizeErrorCode(errorCode, message.detail);
+    analysisError = normalized;
+    showError(normalized);
+    updateScanButtonState();
+  }
+
+  // ============================================================
+  // Skip Notification — "Skipped Xs intro" banner
+  // ============================================================
+
+  function showSkipNotification(secondsSkipped) {
+    const player = document.querySelector('#movie_player');
+    if (!player) return;
+
+    const notif = document.createElement('div');
+    notif.style.cssText = `
+      position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+      z-index: 100; padding: 8px 16px; border-radius: 6px;
+      background: rgba(8, 12, 30, 0.95); border: 1px solid #e2b714;
+      font-family: 'Press Start 2P', monospace; font-size: 9px;
+      color: #e2b714; text-shadow: 0 0 8px rgba(226, 183, 20, 0.4);
+      pointer-events: none; opacity: 1; transition: opacity 0.5s ease;
+    `;
+    notif.textContent = `⚡ Skipped ${Math.round(secondsSkipped)}s intro`;
+    player.appendChild(notif);
+
+    setTimeout(() => { notif.style.opacity = '0'; }, 2000);
+    setTimeout(() => notif.remove(), 2500);
   }
 
   // ============================================================
@@ -380,11 +500,8 @@
     if (!video || segments.length === 0) return;
 
     // Use last segment's end as fallback duration when video metadata isn't ready.
-    // This prevents the timeline silently disappearing when the video element
-    // temporarily reports duration=0 during an intensity change re-render.
     const duration = video.duration || (segments.length > 0 ? segments[segments.length - 1].end : 0);
     if (!duration || duration === 0) {
-      // Video not loaded yet — wait and retry
       video.addEventListener('loadedmetadata', () => renderTimeline(), { once: true });
       return;
     }
@@ -400,17 +517,19 @@
       const x = Math.min(Math.max(0, e.clientX - rect.left), rect.width);
       const targetTime = (x / rect.width) * vid.duration;
       vid.currentTime = targetTime;
-      console.log(`[Waffle Skipper] Timeline seek: ${formatTime(targetTime)}`);
+      console.log(`[Woffle] Timeline seek: ${formatTime(targetTime)}`);
     });
 
     // Create a segment div for each classified chunk.
-    // The backend returns waffle_confidence (0-100) per segment. We apply
-    // the user's intensity threshold to classify each as substance or waffle.
+    // The backend returns woffle_confidence (0-100) per segment. We apply
+    // the user's intensity threshold to classify each as substance or woffle.
     for (const segment of segments) {
-      const isWaffle = (segment.waffle_confidence || 0) >= waffleThreshold;
-      const segType = isWaffle ? 'waffle' : 'substance';
+      const confidence = segment.woffle_confidence ?? segment.waffle_confidence ?? 0;
+      const isWoffle = confidence >= woffleThreshold;
+      const segType = isWoffle ? 'waffle' : 'substance';
       // Backwards compat: also check legacy segment.type field
-      const effectiveType = segment.waffle_confidence !== undefined ? segType : (segment.type || 'substance');
+      const effectiveType = (segment.woffle_confidence !== undefined || segment.waffle_confidence !== undefined)
+        ? segType : (segment.type || 'substance');
       const segEl = document.createElement('div');
       segEl.className = `waffle-segment ${effectiveType}`;
 
@@ -424,15 +543,13 @@
       segEl.dataset.start = segment.start;
       segEl.dataset.end = segment.end;
       segEl.dataset.type = effectiveType;
-      segEl.dataset.text = segment.text || '';
+      segEl.dataset.text = segment.label || segment.text || '';
 
       // Hover tooltip
       segEl.addEventListener('mouseenter', showTooltip);
       segEl.addEventListener('mouseleave', hideTooltip);
 
-      // Click-to-skip: clicking an orange (waffle) segment jumps to its end.
-      // stopPropagation prevents the timeline container's proportional-seek handler
-      // from also firing. Works regardless of the auto-skip toggle state.
+      // Click-to-skip: clicking an orange (woffle) segment jumps to its end.
       if (effectiveType === 'waffle') {
         segEl.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -440,7 +557,7 @@
           if (!vid) return;
           const end = parseFloat(segEl.dataset.end);
           vid.currentTime = end;
-          console.log(`[Waffle Skipper] CLICK SKIP: -> ${formatTime(end)}`);
+          console.log(`[Woffle] CLICK SKIP: -> ${formatTime(end)}`);
         });
       }
 
@@ -450,20 +567,12 @@
     // Inject below YouTube's progress bar
     injectTimeline(timelineEl);
 
-    // Re-attach timeupdate listener now that we have a confirmed live video reference.
-    // analyzeVideo() also calls enableAutoSkip(), but if renderTimeline() deferred due
-    // to duration === 0 (loadedmetadata path), the video reference may have changed.
-    // Calling here is safe — enableAutoSkip() always removes the old listener first.
+    // Re-attach timeupdate listener
     enableAutoSkip();
   }
 
   function injectTimeline(el) {
     if (timelineAlwaysVisible) {
-      // Inject directly into #movie_player at an absolute position just below
-      // the progress bar. This ensures the timeline is NEVER inside
-      // .ytp-chrome-bottom, which YouTube sets to opacity:0 during auto-hide.
-      // CSS opacity on a parent node cannot be overridden by a child — structural
-      // separation is the only reliable fix.
       const player = document.querySelector('#movie_player');
       if (player) {
         el.classList.add('always-visible');
@@ -494,8 +603,6 @@
 
   // Calculate where the progress bar sits within #movie_player and position
   // the given element just below it using absolute coordinates.
-  // Called when timelineAlwaysVisible = true so the element is placed in
-  // #movie_player rather than inside .ytp-chrome-bottom.
   function positionTimelineAbsolute(el) {
     const player = document.querySelector('#movie_player');
     const progressBar = document.querySelector('.ytp-progress-bar-container');
@@ -508,7 +615,6 @@
     el.style.left = '0';
     el.style.right = '0';
     el.style.width = '100%';
-    // top = distance from player top to bottom of progress bar
     const topPx = barRect.bottom - playerRect.top;
     el.style.top = `${topPx}px`;
     el.style.zIndex = '80';
@@ -554,8 +660,6 @@
   // ============================================================
   // Scan Button — injected near YouTube's player controls
   // ============================================================
-  // Small 🧇 button the user clicks to manually trigger analysis.
-  // Pulses while scanning, dims after analysis completes.
 
   function injectScanButton() {
     removeElement('#woffle-scan-btn');
@@ -563,7 +667,7 @@
     scanButtonEl = document.createElement('button');
     scanButtonEl.id = 'woffle-scan-btn';
     scanButtonEl.textContent = '🧇';
-    scanButtonEl.title = 'Scan for waffle';
+    scanButtonEl.title = 'Scan for woffle';
     scanButtonEl.addEventListener('click', () => {
       if (!currentVideoId || isAnalyzing) return;
       analyzeVideo(currentVideoId);
@@ -590,15 +694,14 @@
       scanButtonEl.title = 'Analysis complete';
     } else {
       scanButtonEl.classList.remove('scanning', 'done');
-      scanButtonEl.title = 'Scan for waffle';
+      scanButtonEl.title = 'Scan for woffle';
     }
   }
 
   // NO scoreboard — per CLAUDE.md "NO Floating HUD".
   // Stats live in the popup only. The timeline bar IS the entire in-video UI.
 
-  // Brief 🧇 emoji pop animation overlaid on the video when waffle is auto-skipped.
-  // The element self-destructs after the CSS animation completes (0.6s).
+  // Brief 🧇 emoji pop animation overlaid on the video when woffle is auto-skipped.
   function showSkipFlash() {
     const player = document.querySelector('#movie_player');
     if (!player) return;
@@ -637,7 +740,7 @@
     // Always update transcript follower position, regardless of auto-skip toggle
     updateTranscriptScroll(video.currentTime);
 
-    // P1-5: Respect the auto-skip toggle — do nothing if user has disabled it
+    // Respect the auto-skip toggle
     if (!autoSkipEnabled) return;
     if (skipCooldown) return;
 
@@ -650,21 +753,21 @@
     }
 
     for (const segment of segments) {
-      // Use confidence threshold to decide if this segment is waffle.
-      // Backwards compat: check legacy segment.type too.
-      const isWaffle = segment.waffle_confidence !== undefined
-        ? (segment.waffle_confidence >= waffleThreshold)
+      // Use confidence threshold to decide if this segment is woffle.
+      const confidence = segment.woffle_confidence ?? segment.waffle_confidence ?? 0;
+      const isWoffle = (segment.woffle_confidence !== undefined || segment.waffle_confidence !== undefined)
+        ? (confidence >= woffleThreshold)
         : (segment.type === 'waffle');
-      if (isWaffle &&
+      if (isWoffle &&
           currentTime >= segment.start &&
           currentTime < segment.end - 0.5) {
-        console.log(`[Waffle Skipper] AUTO SKIP: ${formatTime(segment.start)} -> ${formatTime(segment.end)}`);
+        console.log(`[Woffle] AUTO SKIP: ${formatTime(segment.start)} -> ${formatTime(segment.end)}`);
         video.currentTime = segment.end;
 
         wafflesZapped++;
         timeSavedSec += (segment.end - currentTime);
-        showSkipFlash(); // Brief 🧇 pop animation on the video player
-        flashTranscriptLine(segment.start); // Orange flash in transcript panel
+        showSkipFlash();
+        flashTranscriptLine(segment.start);
 
         skipCooldown = true;
         setTimeout(() => { skipCooldown = false; }, 300);
@@ -706,26 +809,26 @@
 
       event.preventDefault();
       video.currentTime = targetTime;
-      flashSegment(targetTime); // Visual feedback: briefly highlight the segment we jumped to
-      const targetIsWaffle = targetSegment && (
-        targetSegment.waffle_confidence !== undefined
-          ? targetSegment.waffle_confidence >= waffleThreshold
+      flashSegment(targetTime);
+      const confidence = targetSegment?.woffle_confidence ?? targetSegment?.waffle_confidence ?? 0;
+      const targetIsWoffle = targetSegment && (
+        (targetSegment.woffle_confidence !== undefined || targetSegment.waffle_confidence !== undefined)
+          ? confidence >= woffleThreshold
           : targetSegment.type === 'waffle'
       );
-      if (event.shiftKey && targetIsWaffle) {
+      if (event.shiftKey && targetIsWoffle) {
         bypassAutoSkipUntil = targetSegment.end;
-        console.log(`[Waffle Skipper] Auto-skip bypass armed until ${formatTime(targetSegment.end)} (manual review)`);
+        console.log(`[Woffle] Auto-skip bypass armed until ${formatTime(targetSegment.end)} (manual review)`);
       } else {
         bypassAutoSkipUntil = 0;
       }
-      console.log(`[Waffle Skipper] Section jump (${event.shiftKey ? 'prev' : 'next'}): ${formatTime(targetTime)}`);
+      console.log(`[Woffle] Section jump (${event.shiftKey ? 'prev' : 'next'}): ${formatTime(targetTime)}`);
     };
 
     window.addEventListener('keydown', keydownHandler, true);
   }
 
-  // Flash the timeline segment containing the given time, providing visual
-  // feedback when the user jumps with Tab/Shift+Tab keyboard navigation.
+  // Flash the timeline segment containing the given time
   function flashSegment(time) {
     if (!timelineEl) return;
     const segEl = [...timelineEl.querySelectorAll('.waffle-segment')].find(el => {
@@ -734,9 +837,8 @@
       return time >= start && time <= end;
     });
     if (!segEl) return;
-    // Remove first to restart animation if user jumps quickly
     segEl.classList.remove('nav-flash');
-    void segEl.offsetWidth; // force reflow
+    void segEl.offsetWidth;
     segEl.classList.add('nav-flash');
     setTimeout(() => segEl.classList.remove('nav-flash'), 600);
   }
@@ -745,11 +847,11 @@
     const threshold = currentTime + 0.5;
     const next = segments
       .filter(segment => {
-        // Use confidence threshold (new format) with legacy type fallback
-        const isWaffle = segment.waffle_confidence !== undefined
-          ? segment.waffle_confidence >= waffleThreshold
+        const confidence = segment.woffle_confidence ?? segment.waffle_confidence ?? 0;
+        const isWoffle = (segment.woffle_confidence !== undefined || segment.waffle_confidence !== undefined)
+          ? confidence >= woffleThreshold
           : segment.type === 'waffle';
-        return !isWaffle; // we want substance segments
+        return !isWoffle;
       })
       .sort((a, b) => a.start - b.start)
       .find(segment => segment.start > threshold);
@@ -789,7 +891,7 @@
 
     const loadingEl = document.createElement('div');
     loadingEl.id = 'waffle-loading';
-    loadingEl.innerHTML = '<span class="waffle-loading-text">🧇 SCANNING FOR WAFFLE...</span>';
+    loadingEl.innerHTML = '<span class="waffle-loading-text">🧇 SCANNING FOR WOFFLE...</span>';
 
     injectTimeline(loadingEl);
     updateScanButtonState();
@@ -804,19 +906,21 @@
     errorEl.id = 'waffle-error';
 
     const messages = {
-      'NO_CAPTIONS': 'WS NO CAPTIONS AVAILABLE',
-      'NO_ENGLISH_CAPTIONS': 'WS ENGLISH CAPTIONS NOT FOUND',
-      'NO_API_KEY': 'WS API KEY NOT SET - OPEN SETTINGS',
-      'INVALID_API_KEY': 'WS API KEY INVALID - CHECK SETTINGS',
-      'NO_CREDITS': 'WS NO API CREDITS - CHECK BILLING',
-      'RATE_LIMIT': 'WS RATE LIMITED - TRY AGAIN SOON',
-      'MODEL_UNAVAILABLE': 'WS MODEL NOT AVAILABLE - CHECK ACCESS',
-      'CLASSIFICATION_FAILED': 'WS ANALYSIS FAILED - CLICK TO RETRY',
-      'UNKNOWN_ERROR': 'WS SOMETHING WENT WRONG',
+      'NO_CAPTIONS': 'NO CAPTIONS AVAILABLE',
+      'NO_ENGLISH_CAPTIONS': 'ENGLISH CAPTIONS NOT FOUND',
+      'NO_API_KEY': 'API KEY NOT SET - OPEN SETTINGS',
+      'INVALID_API_KEY': 'API KEY INVALID - CHECK SETTINGS',
+      'NO_CREDITS': 'NO API CREDITS - CHECK BILLING',
+      'no_credits': 'OUT OF CREDITS',
+      'NOT_LOGGED_IN': 'SIGN IN FIRST - OPEN SETTINGS',
+      'RATE_LIMIT': 'RATE LIMITED - TRY AGAIN SOON',
+      'MODEL_UNAVAILABLE': 'MODEL NOT AVAILABLE - CHECK ACCESS',
+      'CLASSIFICATION_FAILED': 'ANALYSIS FAILED - CLICK TO RETRY',
+      'UNKNOWN_ERROR': 'SOMETHING WENT WRONG',
     };
 
     const msg = messages[errorCode] || messages['UNKNOWN_ERROR'];
-    errorEl.innerHTML = `<span class="waffle-error-text">${msg}</span>`;
+    errorEl.innerHTML = `<span class="waffle-error-text">🧇 ${msg}</span>`;
 
     if (errorCode === 'CLASSIFICATION_FAILED' || errorCode === 'UNKNOWN_ERROR') {
       errorEl.style.cursor = 'pointer';
@@ -846,18 +950,11 @@
   // ============================================================
   // Transcript Follower Panel
   // ============================================================
-  // Collapsible panel below the video that shows the full transcript
-  // synced to playback. Waffle segments are orange with strikethrough.
-  // Uses raw transcript events for per-caption granularity when available,
-  // falling back to backend-classified segments (coarser but always present).
 
-  // Build the flat list of transcript lines from the best available source.
-  // Called once after analysis completes. Each line has {start, end, text}.
   function buildTranscriptLines() {
     transcriptLines = [];
 
-    // Prefer raw transcript events from page-extractor for fine-grained,
-    // per-caption lines (each is typically 2-5 seconds of speech)
+    // Prefer raw transcript events from page-extractor for fine-grained lines
     if (latestTranscriptData && latestTranscriptData.events) {
       for (const event of latestTranscriptData.events) {
         if (!event.segs) continue;
@@ -869,7 +966,7 @@
       }
     }
 
-    // Fallback: use the backend-classified segments (always available after analysis)
+    // Fallback: use the backend-classified segments
     if (transcriptLines.length === 0) {
       for (const seg of segments) {
         const text = seg.text || seg.label || '';
@@ -879,23 +976,21 @@
     }
 
     transcriptLines.sort((a, b) => a.start - b.start);
-    console.log(`[Waffle Skipper] Transcript lines: ${transcriptLines.length} (${latestTranscriptData ? 'raw' : 'segments'})`);
+    console.log(`[Woffle] Transcript lines: ${transcriptLines.length} (${latestTranscriptData ? 'raw' : 'segments'})`);
   }
 
-  // Check whether a transcript line falls within a waffle segment.
-  // Uses the midpoint of the line to find the overlapping classified segment,
-  // then applies the current intensity threshold.
-  function isLineWaffle(line) {
+  // Check whether a transcript line falls within a woffle segment.
+  function isLineWoffle(line) {
     const mid = (line.start + line.end) / 2;
     const seg = segments.find(s => mid >= s.start && mid < s.end);
     if (!seg) return false;
-    return seg.waffle_confidence !== undefined
-      ? seg.waffle_confidence >= waffleThreshold
+    const confidence = seg.woffle_confidence ?? seg.waffle_confidence ?? 0;
+    return (seg.woffle_confidence !== undefined || seg.waffle_confidence !== undefined)
+      ? confidence >= woffleThreshold
       : seg.type === 'waffle';
   }
 
-  // Inject the 📜 TRANSCRIPT toggle button next to the 🧇 SCAN button.
-  // Visible as soon as the video loads; clicking opens/closes the panel.
+  // Inject the 📜 TRANSCRIPT toggle button
   function injectTranscriptToggle() {
     removeElement('#woffle-transcript-toggle');
 
@@ -920,9 +1015,7 @@
     }
   }
 
-  // Build and inject the full transcript panel. Called once after analysis.
-  // Each transcript line becomes a clickable row with timestamp + text.
-  // Waffle lines get orange strikethrough treatment based on current intensity.
+  // Build and inject the full transcript panel
   function renderTranscriptPanel() {
     removeElement('#woffle-transcript-panel');
     lastActiveTranscriptIdx = -1;
@@ -933,7 +1026,7 @@
     transcriptPanelEl.id = 'woffle-transcript-panel';
     if (!transcriptPanelOpen) transcriptPanelEl.classList.add('collapsed');
 
-    // Header bar — label + close button (retro arcade style)
+    // Header bar
     const header = document.createElement('div');
     header.className = 'woffle-transcript-header';
 
@@ -961,15 +1054,14 @@
 
     for (let i = 0; i < transcriptLines.length; i++) {
       const line = transcriptLines[i];
-      const waffle = isLineWaffle(line);
+      const woffle = isLineWoffle(line);
 
       const row = document.createElement('div');
-      row.className = `woffle-transcript-line${waffle ? ' waffle' : ''}`;
+      row.className = `woffle-transcript-line${woffle ? ' waffle' : ''}`;
       row.dataset.index = i;
       row.dataset.start = line.start;
       row.dataset.end = line.end;
 
-      // ▶ play indicator — only visible on the active (currently playing) row via CSS
       const indicator = document.createElement('span');
       indicator.className = 'woffle-transcript-indicator';
 
@@ -985,12 +1077,11 @@
       row.appendChild(timeEl);
       row.appendChild(textEl);
 
-      // Click-to-seek: jump to this line's start time
       row.addEventListener('click', () => {
         const vid = document.querySelector('video');
         if (vid) {
           vid.currentTime = line.start;
-          console.log(`[Waffle Skipper] Transcript seek: ${formatTime(line.start)}`);
+          console.log(`[Woffle] Transcript seek: ${formatTime(line.start)}`);
         }
       });
 
@@ -999,23 +1090,17 @@
 
     transcriptPanelEl.appendChild(scrollContainer);
 
-    // Inject between the player area and the video title/description.
-    // Goes into #below (or #info) as the first child, after the scan button.
     const belowPlayer = document.querySelector('#below') || document.querySelector('#info');
     if (belowPlayer) {
-      // Insert after the scan/transcript buttons (which are the first children)
       const insertRef = transcriptToggleEl?.nextSibling || scanButtonEl?.nextSibling || belowPlayer.firstChild;
       belowPlayer.insertBefore(transcriptPanelEl, insertRef);
     }
   }
 
-  // Sync the transcript panel to the current playback position.
-  // Called from handleTimeUpdate (~4 times/sec). Only touches the DOM
-  // when the active line actually changes (avoids redundant work).
+  // Sync the transcript panel to the current playback position
   function updateTranscriptScroll(currentTime) {
     if (!transcriptPanelEl || !transcriptPanelOpen) return;
 
-    // Find which transcript line covers the current time
     let activeIdx = -1;
     for (let i = 0; i < transcriptLines.length; i++) {
       if (currentTime >= transcriptLines[i].start && currentTime < transcriptLines[i].end) {
@@ -1024,7 +1109,6 @@
       }
     }
 
-    // Only update DOM when the highlighted line changes
     if (activeIdx === lastActiveTranscriptIdx) return;
     lastActiveTranscriptIdx = activeIdx;
 
@@ -1036,15 +1120,12 @@
       row.classList.toggle('active', parseInt(row.dataset.index) === activeIdx);
     }
 
-    // Smooth-scroll to keep the active line centred in the panel
     if (activeIdx >= 0 && rows[activeIdx]) {
       rows[activeIdx].scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   }
 
-  // Re-apply waffle/substance classification to all transcript lines.
-  // Called when intensity changes — lines that were substance at LIGHT
-  // may become waffle at HEAVY and vice versa.
+  // Re-apply woffle/substance classification to all transcript lines
   function updateTranscriptClassifications() {
     if (!transcriptPanelEl) return;
 
@@ -1052,13 +1133,12 @@
     for (const row of rows) {
       const idx = parseInt(row.dataset.index);
       if (idx >= 0 && idx < transcriptLines.length) {
-        row.classList.toggle('waffle', isLineWaffle(transcriptLines[idx]));
+        row.classList.toggle('waffle', isLineWoffle(transcriptLines[idx]));
       }
     }
   }
 
-  // Flash a transcript line orange when it's auto-skipped.
-  // Provides visual feedback in the panel showing exactly what was cut.
+  // Flash a transcript line orange when it's auto-skipped
   function flashTranscriptLine(startTime) {
     if (!transcriptPanelEl || !transcriptPanelOpen) return;
 
@@ -1068,7 +1148,7 @@
       const end = parseFloat(row.dataset.end);
       if (startTime >= start && startTime < end) {
         row.classList.remove('skip-flash');
-        void row.offsetWidth; // force reflow to restart animation
+        void row.offsetWidth;
         row.classList.add('skip-flash');
         setTimeout(() => row.classList.remove('skip-flash'), 600);
         break;
@@ -1076,8 +1156,7 @@
     }
   }
 
-  // Hide transcript panel in fullscreen mode — too much screen real estate.
-  // YouTube fires fullscreenchange when entering/exiting fullscreen.
+  // Hide transcript panel in fullscreen mode
   document.addEventListener('fullscreenchange', () => {
     if (transcriptPanelEl) {
       transcriptPanelEl.style.display = document.fullscreenElement ? 'none' : '';
@@ -1087,31 +1166,24 @@
   // ============================================================
   // Intensity Control
   // ============================================================
-  // Maps the 3 intensity levels to waffle_confidence thresholds.
-  // Changing intensity re-renders the timeline and updates skip logic
-  // entirely client-side — no new API call, just re-filtering cached segments.
 
-  function getWaffleThreshold(intensity) {
+  function getWoffleThreshold(intensity) {
     switch (intensity) {
-      case 'light':  return 80; // Only obvious waffle: sponsors, plugs, subscribe pleas
-      case 'medium': return 50; // + tangents, repetition, long intros, padding
-      case 'heavy':  return 25; // + anecdotes, banter, context-setting, repeated points
+      case 'light':  return 80;
+      case 'medium': return 50;
+      case 'heavy':  return 25;
       default:       return 50;
     }
   }
 
   function applyIntensity(intensity) {
     currentIntensity = intensity;
-    waffleThreshold = getWaffleThreshold(intensity);
-    console.log(`[Waffle Skipper] Intensity → ${intensity.toUpperCase()} (threshold: ${waffleThreshold})`);
+    woffleThreshold = getWoffleThreshold(intensity);
+    console.log(`[Woffle] Intensity → ${intensity.toUpperCase()} (threshold: ${woffleThreshold})`);
 
-    // Re-render the timeline if we have cached segments — segments flip
-    // between green (substance) and orange (waffle) based on the new threshold.
     if (segments.length > 0) {
       renderTimeline();
-      // Add fade-in class so the colour change doesn't feel jarring
       if (timelineEl) timelineEl.classList.add('intensity-transition');
-      // Update transcript panel — waffle/substance styling re-applies
       updateTranscriptClassifications();
     }
   }
@@ -1128,26 +1200,24 @@
       || 'Unknown';
 
     // Apply the current intensity threshold to classify segments
-    const waffleSegments = segments.filter(s =>
-      s.waffle_confidence !== undefined
-        ? s.waffle_confidence >= waffleThreshold
-        : s.type === 'waffle'
-    );
+    const woffleSegments = segments.filter(s => {
+      const confidence = s.woffle_confidence ?? s.waffle_confidence ?? 0;
+      return (s.woffle_confidence !== undefined || s.waffle_confidence !== undefined)
+        ? confidence >= woffleThreshold
+        : s.type === 'waffle';
+    });
 
-    // De-overlap waffle segments before summing to prevent double-counting.
-    // Claude sometimes returns segments with overlapping time ranges.
-    // Sort by start, then for each segment only count the non-overlapping portion.
-    // Also cap at video duration — TIME SAVEABLE can never exceed the video length.
+    // De-overlap woffle segments before summing
     const videoDur = video?.duration || 0;
-    const sortedWaffle = [...waffleSegments].sort((a, b) => a.start - b.start);
-    let totalWaffleTime = 0;
-    let lastWaffleEnd = 0;
-    for (const seg of sortedWaffle) {
-      const start = Math.max(seg.start, lastWaffleEnd);
+    const sortedWoffle = [...woffleSegments].sort((a, b) => a.start - b.start);
+    let totalWoffleTime = 0;
+    let lastWoffleEnd = 0;
+    for (const seg of sortedWoffle) {
+      const start = Math.max(seg.start, lastWoffleEnd);
       const end = videoDur > 0 ? Math.min(seg.end, videoDur) : seg.end;
       if (end > start) {
-        totalWaffleTime += end - start;
-        lastWaffleEnd = end;
+        totalWoffleTime += end - start;
+        lastWoffleEnd = end;
       }
     }
 
@@ -1157,13 +1227,13 @@
       isAnalyzing,
       error: analysisError,
       segmentCount: segments.length,
-      waffleCount: waffleSegments.length,
-      substanceCount: segments.length - waffleSegments.length,
-      totalWaffleTimeSec: totalWaffleTime,
+      waffleCount: woffleSegments.length,
+      substanceCount: segments.length - woffleSegments.length,
+      totalWaffleTimeSec: totalWoffleTime,
       wafflesZapped,
       timeSavedSec,
       autoSkipEnabled,
-      waffleIntensity: currentIntensity,
+      woffleIntensity: currentIntensity,
       videoDuration: video?.duration || 0,
     };
   }

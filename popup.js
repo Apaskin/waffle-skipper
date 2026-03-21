@@ -74,6 +74,23 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // ============================================================
+  // Intensity tooltip hover — 500ms delay, shows description above button
+  // ============================================================
+
+  let tooltipTimer = null;
+  intensityBtns.forEach(btn => {
+    btn.addEventListener('mouseenter', () => {
+      tooltipTimer = setTimeout(() => {
+        btn.classList.add('show-tooltip');
+      }, 500);
+    });
+    btn.addEventListener('mouseleave', () => {
+      clearTimeout(tooltipTimer);
+      btn.classList.remove('show-tooltip');
+    });
+  });
+
+  // ============================================================
   // Timeline visibility checkbox — stored in chrome.storage.sync
   // ============================================================
   // When checked, content script injects the timeline into #movie_player
@@ -209,7 +226,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Analysis status line
     const statusEl = document.getElementById('analysis-status');
     if (status.isAnalyzing) {
-      statusEl.textContent = 'SCANNING FOR WAFFLE...';
+      statusEl.textContent = 'SCANNING FOR WOFFLE...';
       statusEl.className = 'analysis-status scanning';
     } else if (status.error) {
       const errorMessages = {

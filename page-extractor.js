@@ -87,7 +87,7 @@
     // positively identify a non-English lang= parameter; unknown language passes through.
     var lang = extractLanguageFromTimedtextUrl(url);
     if (lang !== null && lang !== 'en' && lang.indexOf('en') !== 0) {
-      console.log('[Waffle Skipper Extractor] Skipping non-English caption track, lang=' + lang);
+      console.log('[Woffle Extractor] Skipping non-English caption track, lang=' + lang);
       return;
     }
 
@@ -98,7 +98,7 @@
     try {
       var data = JSON.parse(responseText);
       if (data.events && data.events.length > 0) {
-        console.log('[Waffle Skipper Extractor] Captured transcript for', videoId + ':', data.events.length, 'events');
+        console.log('[Woffle Extractor] Captured transcript for', videoId + ':', data.events.length, 'events');
         capturedTranscripts[videoId] = data;
         postTranscript(videoId, data, 'json');
         return;
@@ -110,7 +110,7 @@
       if (responseText.trim().charAt(0) === '<') {
         var parsed = parseXmlTranscript(responseText);
         if (parsed && parsed.events.length > 0) {
-          console.log('[Waffle Skipper Extractor] Captured XML transcript for', videoId + ':', parsed.events.length, 'events');
+          console.log('[Woffle Extractor] Captured XML transcript for', videoId + ':', parsed.events.length, 'events');
           capturedTranscripts[videoId] = parsed;
           postTranscript(videoId, parsed, 'xml');
           return;
@@ -361,7 +361,7 @@
           var data = await response.json();
           var tracks = extractTracksFromPlayerResponse(data);
           if (tracks.length > 0) {
-            console.log('[Waffle Skipper Extractor] Innertube returned', tracks.length, 'tracks');
+            console.log('[Woffle Extractor] Innertube returned', tracks.length, 'tracks');
             return dedupeTracks(tracks);
           }
         } catch (e) {}
@@ -410,7 +410,7 @@
     for (var t = 0; t < orderedTracks.length; t++) {
       var parsed = await fetchTranscriptFromTrack(orderedTracks[t]);
       if (parsed && parsed.events && parsed.events.length > 0) {
-        console.log('[Waffle Skipper Extractor] Captured transcript via ' + methodName + ' for', videoId + ':', parsed.events.length, 'events');
+        console.log('[Woffle Extractor] Captured transcript via ' + methodName + ' for', videoId + ':', parsed.events.length, 'events');
         capturedTranscripts[videoId] = parsed;
         postTranscript(videoId, parsed, methodName);
         return parsed;
@@ -571,7 +571,7 @@
     }
   });
 
-  console.log('[Waffle Skipper Extractor] Listening for YouTube caption requests...');
+  console.log('[Woffle Extractor] Listening for YouTube caption requests...');
 
   function scheduleCaptureForCurrentVideo() {
     var videoId = getCurrentVideoId();

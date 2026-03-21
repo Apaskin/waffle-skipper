@@ -1,6 +1,13 @@
 // background.js — Woffle service worker.
 // Handles transcript fetching from YouTube, chunking, and communication with
 // the Woffle backend (Cloudflare Worker) for AI classification.
+//
+// Two-pass architecture:
+//   Pass 1 (Quick): Haiku scans first 90s for instant intro skip (~1-2s)
+//   Pass 2 (Full):  Sonnet streams full analysis via SSE (~10-15s)
+// Both fire simultaneously on SCAN. Segments forwarded to content script
+// incrementally as they arrive.
+//
 // No direct Claude API calls — all analysis goes through the backend proxy
 // which manages credits, shared cache, and the Anthropic API key.
 
@@ -122,6 +129,24 @@ async function workerFetch(path, options = {}) {
 
   const data = await res.json();
   return { ok: res.ok, status: res.status, data };
+}
+
+// Make an authenticated fetch that returns the raw Response (for SSE streaming).
+async function workerFetchRaw(path, options = {}) {
+  const token = await getValidAccessToken();
+  if (!token) {
+    return null;
+  }
+
+  const url = `${WOFFLE_CONFIG.WORKER_URL}${path}`;
+  return fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      ...(options.headers || {}),
+    },
+  });
 }
 
 // ============================================================
@@ -497,10 +522,16 @@ async function evictLocalCache() {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'ANALYZE_VIDEO') {
-    handleAnalyzeVideo(message.videoId, message.captionUrl, message.transcriptData, message.videoTitle)
-      .then(result => sendResponse(result))
-      .catch(err => sendResponse({ error: err.message }));
-    return true; // Keep message channel open for async response
+    // New two-pass architecture: return immediately, send results via tabs.sendMessage
+    const tabId = sender.tab?.id;
+    if (!tabId) {
+      sendResponse({ error: 'NO_TAB_ID' });
+      return true;
+    }
+    // Start the analysis pipeline in the background
+    handleAnalyzeVideoStreaming(message.videoId, message.captionUrl, message.transcriptData, message.videoTitle, tabId);
+    sendResponse({ status: 'scanning' });
+    return true;
   }
 
   if (message.type === 'GET_USER_STATE') {
@@ -629,46 +660,60 @@ async function handleGetCheckoutUrl(tier, topup) {
 }
 
 // ============================================================
-// Main analysis pipeline
+// Two-Pass Streaming Analysis Pipeline
 // ============================================================
-// Flow:
-// 1. Check local cache (chrome.storage.local)
-// 2. Check backend shared cache (GET /api/analyse/:video_id)
-// 3. Cache miss → fetch transcript, chunk, send to backend (POST /api/analyse)
-// 4. Backend calls Claude, stores in shared cache, deducts credit
-// 5. Store result in local cache too
+// Fires quick scan (Haiku) and full scan (Sonnet streaming) simultaneously.
+// Quick scan result arrives in 1-2s → instant intro skip.
+// Full scan streams segments as they're classified → progressive timeline.
+//
+// Results sent to content script via chrome.tabs.sendMessage:
+//   WOFFLE_QUICK_RESULT  — intro skip point from Haiku
+//   WOFFLE_SEGMENT       — individual classified segment from Sonnet
+//   WOFFLE_COMPLETE      — all segments done, final stats
+//   WOFFLE_ERROR         — something went wrong
 
-async function handleAnalyzeVideo(videoId, captionUrl, transcriptData, videoTitle) {
-  if (!videoId) return { error: 'NO_VIDEO_ID' };
+async function handleAnalyzeVideoStreaming(videoId, captionUrl, transcriptData, videoTitle, tabId) {
+  if (!videoId) {
+    sendToTab(tabId, { type: 'WOFFLE_ERROR', error: 'NO_VIDEO_ID' });
+    return;
+  }
 
   // 1. Local cache
   const localCached = await getLocalCache(videoId);
   if (localCached) {
     console.log(`[Woffle] Local cache hit for ${videoId}`);
-    return { segments: localCached, fromCache: true };
+    // Send all segments at once (cached = instant)
+    for (const seg of localCached) {
+      sendToTab(tabId, { type: 'WOFFLE_SEGMENT', segment: seg });
+    }
+    sendToTab(tabId, { type: 'WOFFLE_COMPLETE', fromCache: true, totalSegments: localCached.length });
+    return;
   }
 
-  // Check auth — need to be logged in for backend calls
+  // Check auth
   const token = await getValidAccessToken();
   if (!token) {
-    return { error: 'NOT_LOGGED_IN' };
+    sendToTab(tabId, { type: 'WOFFLE_ERROR', error: 'NOT_LOGGED_IN' });
+    return;
   }
 
-  // 2. Backend shared cache check (no credit cost, no transcript needed)
+  // 2. Backend shared cache check
   try {
     const cacheResult = await workerFetch(`/api/analyse/${encodeURIComponent(videoId)}`);
     if (cacheResult.ok && cacheResult.data.segments) {
       console.log(`[Woffle] Backend cache hit for ${videoId}`);
-      // Store locally too for faster future access
       await setLocalCache(videoId, cacheResult.data.segments);
-      return { segments: cacheResult.data.segments, fromCache: true };
+      for (const seg of cacheResult.data.segments) {
+        sendToTab(tabId, { type: 'WOFFLE_SEGMENT', segment: seg });
+      }
+      sendToTab(tabId, { type: 'WOFFLE_COMPLETE', fromCache: true, totalSegments: cacheResult.data.segments.length });
+      return;
     }
   } catch (err) {
     console.warn('[Woffle] Backend cache check failed:', err.message);
-    // Continue to full analysis — backend might be down but we can try
   }
 
-  // 3. Cache miss — need to fetch transcript and send to backend
+  // 3. Cache miss — fetch transcript and classify
   let timedTextData;
   if (transcriptData && transcriptData.events && transcriptData.events.length > 0) {
     console.log(`[Woffle] Using pre-fetched transcript: ${transcriptData.events.length} events`);
@@ -677,34 +722,202 @@ async function handleAnalyzeVideo(videoId, captionUrl, transcriptData, videoTitl
     try {
       timedTextData = await fetchTranscript(videoId, captionUrl);
     } catch (err) {
-      return { error: err.message };
+      sendToTab(tabId, { type: 'WOFFLE_ERROR', error: err.message });
+      return;
     }
   }
 
   // Chunk the transcript
   const chunks = chunkTranscript(timedTextData);
-  if (chunks.length === 0) return { error: 'NO_CAPTIONS' };
+  if (chunks.length === 0) {
+    sendToTab(tabId, { type: 'WOFFLE_ERROR', error: 'NO_CAPTIONS' });
+    return;
+  }
 
-  // 4. Send chunks to backend for classification
-  const analyseResult = await workerFetch('/api/analyse', {
+  // 4. Fire BOTH requests simultaneously
+  //    - Quick scan (Haiku): first 90s → instant intro skip
+  //    - Full scan (Sonnet): entire transcript → streaming segments
+  console.log(`[Woffle] Starting two-pass analysis for ${videoId}`);
+
+  // Quick scan — fire and forget, forward result as soon as it arrives
+  const quickPromise = workerFetch('/api/analyse', {
     method: 'POST',
     body: JSON.stringify({
+      mode: 'quick',
       video_id: videoId,
       transcript_chunks: chunks,
       video_title: videoTitle || undefined,
     }),
+  }).then(result => {
+    if (result.ok && result.data && result.data.intro_ends_at > 0) {
+      console.log(`[Woffle] Quick scan: intro ends at ${result.data.intro_ends_at}s`);
+      sendToTab(tabId, {
+        type: 'WOFFLE_QUICK_RESULT',
+        introEndsAt: result.data.intro_ends_at,
+        introType: result.data.intro_type,
+        topicStarts: result.data.topic_starts,
+      });
+    }
+  }).catch(err => {
+    // Quick scan failure is non-critical — full scan will handle everything
+    console.warn('[Woffle] Quick scan failed (non-critical):', err.message);
   });
 
-  if (!analyseResult.ok) {
-    const errCode = analyseResult.data?.error || 'CLASSIFICATION_FAILED';
-    console.error('[Woffle] Backend analysis failed:', errCode, analyseResult.data?.detail || '');
-    return { error: errCode, detail: analyseResult.data?.detail };
+  // Full scan — stream SSE response and forward each segment
+  const fullPromise = (async () => {
+    try {
+      const response = await workerFetchRaw('/api/analyse', {
+        method: 'POST',
+        body: JSON.stringify({
+          mode: 'full',
+          video_id: videoId,
+          transcript_chunks: chunks,
+          video_title: videoTitle || undefined,
+        }),
+      });
+
+      if (!response) {
+        sendToTab(tabId, { type: 'WOFFLE_ERROR', error: 'NOT_LOGGED_IN' });
+        return;
+      }
+
+      // Check if the response is SSE (streaming) or JSON (cache hit / fallback)
+      const contentType = response.headers.get('Content-Type') || '';
+
+      if (contentType.includes('text/event-stream')) {
+        // Streaming response — parse SSE events
+        await consumeSSEStream(response, tabId, videoId);
+      } else {
+        // JSON response (cache hit or non-streaming fallback)
+        const data = await response.json();
+
+        if (!response.ok) {
+          const errCode = data?.error || 'CLASSIFICATION_FAILED';
+          console.error('[Woffle] Backend analysis failed:', errCode, data?.detail || '');
+          sendToTab(tabId, { type: 'WOFFLE_ERROR', error: errCode, detail: data?.detail });
+          return;
+        }
+
+        if (data.segments) {
+          await setLocalCache(videoId, data.segments);
+          for (const seg of data.segments) {
+            sendToTab(tabId, { type: 'WOFFLE_SEGMENT', segment: seg });
+          }
+          sendToTab(tabId, { type: 'WOFFLE_COMPLETE', fromCache: data.from_cache || false, totalSegments: data.segments.length });
+        }
+      }
+    } catch (err) {
+      console.error('[Woffle] Full scan failed:', err);
+      sendToTab(tabId, { type: 'WOFFLE_ERROR', error: 'CLASSIFICATION_FAILED', detail: err.message });
+    }
+  })();
+
+  // Wait for both (quick result doesn't block full scan)
+  await Promise.allSettled([quickPromise, fullPromise]);
+}
+
+// ============================================================
+// SSE Stream Consumer
+// ============================================================
+// Reads the Server-Sent Events stream from the worker's full analysis
+// response and forwards each segment to the content script.
+
+async function consumeSSEStream(response, tabId, videoId) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  const allSegments = [];
+  let streamError = null;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      // Process complete SSE events (double newline separated)
+      const events = buffer.split('\n\n');
+      buffer = events.pop() || ''; // Keep incomplete last event
+
+      for (const eventBlock of events) {
+        if (!eventBlock.trim()) continue;
+
+        const lines = eventBlock.split('\n');
+        let eventType = '';
+        let eventData = '';
+
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            eventType = line.slice(7).trim();
+          } else if (line.startsWith('data: ')) {
+            eventData = line.slice(6).trim();
+          }
+        }
+
+        if (!eventData) continue;
+
+        try {
+          const data = JSON.parse(eventData);
+
+          switch (eventType) {
+            case 'topic':
+              // Video topic identified — could display in UI later
+              console.log(`[Woffle] Topic: ${data.video_topic}`);
+              break;
+
+            case 'segment':
+              allSegments.push(data);
+              sendToTab(tabId, { type: 'WOFFLE_SEGMENT', segment: data });
+              break;
+
+            case 'done':
+              console.log(`[Woffle] Stream complete: ${data.total_segments} segments`);
+              break;
+
+            case 'error':
+              streamError = data.error;
+              console.error('[Woffle] Stream error:', data.error);
+              break;
+          }
+        } catch {
+          // Skip malformed event data
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[Woffle] SSE stream reading failed:', err);
+    streamError = err.message;
   }
 
-  const segments = analyseResult.data.segments;
+  if (streamError && allSegments.length === 0) {
+    // Stream failed with no segments — report error
+    sendToTab(tabId, { type: 'WOFFLE_ERROR', error: 'CLASSIFICATION_FAILED', detail: streamError });
+    return;
+  }
 
-  // 5. Store in local cache
-  await setLocalCache(videoId, segments);
+  // Even if the stream errored mid-way, use whatever segments we got
+  // (partial analysis > no analysis)
+  if (allSegments.length > 0) {
+    await setLocalCache(videoId, allSegments);
+    sendToTab(tabId, {
+      type: 'WOFFLE_COMPLETE',
+      fromCache: false,
+      totalSegments: allSegments.length,
+      partial: !!streamError,
+    });
+  } else {
+    sendToTab(tabId, { type: 'WOFFLE_ERROR', error: 'NO_SEGMENTS' });
+  }
+}
 
-  return { segments, fromCache: false };
+// ============================================================
+// Helper: send message to content script tab
+// ============================================================
+
+function sendToTab(tabId, message) {
+  chrome.tabs.sendMessage(tabId, message).catch((err) => {
+    // Tab may have navigated away — non-critical
+    console.warn('[Woffle] Could not send to tab:', err.message);
+  });
 }

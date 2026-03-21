@@ -37,7 +37,7 @@ function corsHeaders(origin: string | null): Record<string, string> {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
     const method = request.method;
@@ -53,7 +53,7 @@ export default {
     try {
       // Route matching
       if (method === 'POST' && path === '/api/analyse') {
-        response = await handleAnalyse(request, env);
+        response = await handleAnalyse(request, env, ctx);
       } else if (method === 'GET' && path.startsWith('/api/analyse/')) {
         const videoId = path.replace('/api/analyse/', '');
         response = await handleGetAnalysis(request, env, videoId);
