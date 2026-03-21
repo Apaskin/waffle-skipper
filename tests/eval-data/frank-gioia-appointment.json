@@ -1,0 +1,189 @@
+{
+  "video_id": "REPLACE_WITH_REAL_VIDEO_ID",
+  "video_title": "Frank Gioia — Making An Appointment With The Boss",
+  "video_duration_seconds": 780,
+  "notes": "SEED DATA — replace video_id and transcript array with real data from the extension's console output. This is the ~20-segment video from earlier testing. Human labels are best-guess starting points; refine after running the eval.",
+
+  "transcript": [
+    {"start": 0, "end": 8, "text": "[Music]"},
+    {"start": 8, "end": 22, "text": "so Frank you mentioned making an appointment with the boss tell us about that what does that even mean in the mob world"},
+    {"start": 22, "end": 45, "text": "so making an appointment with the boss it's not like you call his secretary and book a slot right you have to go through channels first you talk to your captain"},
+    {"start": 45, "end": 68, "text": "your captain talks to the underboss and if the underboss thinks it's important enough then maybe just maybe you get a sit-down with the boss"},
+    {"start": 68, "end": 85, "text": "wow that's like a whole bureaucracy it's like a corporate structure almost"},
+    {"start": 85, "end": 110, "text": "that's exactly what it is people think the mob is chaos but it's actually one of the most structured organisations you'll ever see everything has a chain of command"},
+    {"start": 110, "end": 135, "text": "and when you finally get that meeting you better be prepared because you don't waste the boss's time if you come in there with something trivial you're done"},
+    {"start": 135, "end": 158, "text": "I remember the first time I had to go see the boss it was about a dispute over territory between two crews and my captain couldn't resolve it"},
+    {"start": 158, "end": 180, "text": "so he sends me up the chain and I'm sitting there in this back room of a social club and in walks the boss and let me tell you the room changes when he walks in"},
+    {"start": 180, "end": 200, "text": "there's this energy this presence that you can feel everyone sits up straighter everyone shuts up it's like the pope walking into church"},
+    {"start": 200, "end": 215, "text": "that's insane that's absolutely insane the level of respect"},
+    {"start": 215, "end": 240, "text": "and the boss he already knows everything before you open your mouth because his people have briefed him so he's just sitting there letting you talk seeing if you're honest"},
+    {"start": 240, "end": 265, "text": "and he makes his decision right there on the spot no deliberation no let me think about it he just says this is how it's going to be and that's the end of it"},
+    {"start": 265, "end": 285, "text": "nobody argues nobody says but boss what about because that would be the last thing you ever said"},
+    {"start": 285, "end": 305, "text": "and in my case the boss ruled in favor of the other crew which meant my captain lost face and let me tell you that drive home was the longest drive of my life"},
+    {"start": 305, "end": 325, "text": "because I'm the one who has to deliver the bad news and in this world the messenger doesn't always survive the message if you know what I mean"},
+    {"start": 325, "end": 340, "text": "oh man oh man I can't even imagine that pressure"},
+    {"start": 340, "end": 365, "text": "but my captain he was a smart guy he accepted the decision because going against the boss's ruling that's a death sentence nobody does that"},
+    {"start": 365, "end": 388, "text": "and that's the thing about the mob the rules keep everything in order without those rules it would just be chaos everyone fighting everyone"},
+    {"start": 388, "end": 410, "text": "you know what's funny though is that I was thinking about this the other day I was watching one of those mob movies and they get it so wrong"},
+    {"start": 410, "end": 432, "text": "in the movies the boss is always screaming and throwing things around but in real life the most powerful boss I ever met never raised his voice not once"},
+    {"start": 432, "end": 450, "text": "he didn't need to because when you have that kind of power you don't need to yell people listen because they know what happens if they don't"},
+    {"start": 450, "end": 470, "text": "that's a great point and I think that's something a lot of people don't understand about real power versus what Hollywood shows us"},
+    {"start": 470, "end": 490, "text": "hey guys quick break if you're enjoying this conversation please hit that subscribe button we're trying to hit 100K subscribers this month"},
+    {"start": 490, "end": 510, "text": "and check out our other Frank Gioia episodes they're some of our most popular we'll link them in the description"},
+    {"start": 510, "end": 535, "text": "so Frank one last question if you could go back and do it all over again knowing what you know now would you still have gotten into the life"},
+    {"start": 535, "end": 560, "text": "that's the question everyone asks and the honest answer is I don't know because at the time I didn't see another option the neighborhood I grew up in that was the path"},
+    {"start": 560, "end": 585, "text": "but knowing what I know now knowing the prison time the pain I caused my family no probably not but that's easy to say from where I sit today"},
+    {"start": 585, "end": 610, "text": "back then I was a kid looking for respect looking for belonging and the mob gave me that it just took everything else away in return"},
+    {"start": 610, "end": 628, "text": "that is so powerful Frank thank you for being so honest with us guys make sure to check out the links below"},
+    {"start": 628, "end": 645, "text": "follow Frank on Instagram drop a comment let us know what you want to hear about next we'll see you in the next episode"},
+    {"start": 645, "end": 660, "text": "take care everybody and remember stay out of trouble"},
+    {"start": 660, "end": 680, "text": "oh and one more thing we're doing a live Q&A next Thursday at 8PM Eastern make sure you're there we'll be taking questions about all our mob episodes"},
+    {"start": 680, "end": 700, "text": "and if you want early access to episodes before they go public check out the Patreon exclusive tier alright now we're really done see ya"},
+    {"start": 700, "end": 720, "text": "thanks again Frank really appreciate it brother take care of yourself"},
+    {"start": 720, "end": 740, "text": "thanks for having me man anytime you want to talk I'm here"},
+    {"start": 740, "end": 780, "text": "[Music]"}
+  ],
+
+  "human_labels": [
+    {
+      "start": 0,
+      "end": 8,
+      "expected_category": "intro_outro",
+      "expected_confidence_range": [85, 100],
+      "notes": "Music intro"
+    },
+    {
+      "start": 8,
+      "end": 22,
+      "expected_category": "substance",
+      "expected_confidence_range": [0, 30],
+      "notes": "Co-host asks a NEW question — advances the conversation into the appointment topic"
+    },
+    {
+      "start": 22,
+      "end": 68,
+      "expected_category": "substance",
+      "expected_confidence_range": [0, 20],
+      "notes": "Frank explaining the chain of command for getting a meeting — core content"
+    },
+    {
+      "start": 68,
+      "end": 85,
+      "expected_category": "cohost_echo",
+      "expected_confidence_range": [70, 90],
+      "notes": "Co-host: 'wow that's like a whole bureaucracy' — borderline (the corporate structure analogy adds a tiny bit of framing, but mostly reactive)"
+    },
+    {
+      "start": 85,
+      "end": 200,
+      "expected_category": "substance",
+      "expected_confidence_range": [0, 20],
+      "notes": "Frank detailing his first meeting with the boss — personal story that IS the content, vivid details"
+    },
+    {
+      "start": 200,
+      "end": 215,
+      "expected_category": "cohost_echo",
+      "expected_confidence_range": [85, 95],
+      "notes": "Co-host: 'that's insane that's absolutely insane the level of respect' — pure reaction, no info"
+    },
+    {
+      "start": 215,
+      "end": 325,
+      "expected_category": "substance",
+      "expected_confidence_range": [0, 20],
+      "notes": "Frank on the boss's process, ruling, delivering bad news — narrative core"
+    },
+    {
+      "start": 325,
+      "end": 340,
+      "expected_category": "cohost_echo",
+      "expected_confidence_range": [85, 95],
+      "notes": "Co-host: 'oh man oh man I can't even imagine that pressure' — pure reaction"
+    },
+    {
+      "start": 340,
+      "end": 388,
+      "expected_category": "substance",
+      "expected_confidence_range": [0, 25],
+      "notes": "Frank explaining why rules matter in the mob — reflective substance"
+    },
+    {
+      "start": 388,
+      "end": 450,
+      "expected_category": "tangent",
+      "expected_confidence_range": [40, 70],
+      "notes": "Hollywood comparison — mildly off-topic but provides contrast that's somewhat informative. Borderline tangent/context."
+    },
+    {
+      "start": 450,
+      "end": 470,
+      "expected_category": "cohost_echo",
+      "expected_confidence_range": [60, 85],
+      "notes": "Co-host agreeing about real power vs Hollywood — slight substance but mostly reactive agreement"
+    },
+    {
+      "start": 470,
+      "end": 510,
+      "expected_category": "self_promo",
+      "expected_confidence_range": [92, 100],
+      "notes": "Subscribe plea, 100K goal, plugging other episodes — classic self-promo"
+    },
+    {
+      "start": 510,
+      "end": 535,
+      "expected_category": "substance",
+      "expected_confidence_range": [0, 30],
+      "notes": "Co-host asks a final NEW question — would you do it again?"
+    },
+    {
+      "start": 535,
+      "end": 610,
+      "expected_category": "substance",
+      "expected_confidence_range": [0, 20],
+      "notes": "Frank's reflective answer about regret, belonging, cost — emotional peak substance"
+    },
+    {
+      "start": 610,
+      "end": 700,
+      "expected_category": "self_promo",
+      "expected_confidence_range": [88, 100],
+      "notes": "Extended outro: subscribe, Instagram, comments, live Q&A, Patreon — all self-promotion"
+    },
+    {
+      "start": 700,
+      "end": 740,
+      "expected_category": "pleasantries",
+      "expected_confidence_range": [75, 92],
+      "notes": "Mutual thank yous, generic farewell — outro pleasantries"
+    },
+    {
+      "start": 740,
+      "end": 780,
+      "expected_category": "intro_outro",
+      "expected_confidence_range": [85, 100],
+      "notes": "Outro music"
+    }
+  ],
+
+  "expected_intensity_results": {
+    "light": {
+      "min_woffle_segments": 3,
+      "max_woffle_segments": 7,
+      "min_time_saved_seconds": 60,
+      "max_time_saved_seconds": 140
+    },
+    "medium": {
+      "min_woffle_segments": 7,
+      "max_woffle_segments": 12,
+      "min_time_saved_seconds": 120,
+      "max_time_saved_seconds": 240
+    },
+    "heavy": {
+      "min_woffle_segments": 10,
+      "max_woffle_segments": 16,
+      "min_time_saved_seconds": 180,
+      "max_time_saved_seconds": 340
+    }
+  }
+}

@@ -1,0 +1,3 @@
+<!-- Prompt v3.1 — copy v3.0.txt here, make changes, then run:
+     ANTHROPIC_API_KEY=sk-ant-... PROMPT_FILE=prompts/v3.1.txt node run-eval.js
+     Compare results against v3.0 to see if the changes improved accuracy. -->
