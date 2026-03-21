@@ -112,7 +112,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // ============================================================
   // Called on popup open (from GET_STATUS) and when intensity changes
   // (from SET_INTENSITY response). WAFFLES FOUND and TIME SAVEABLE
-  // recalculate based on intensity; WAFFLES ZAPPED and TIME SAVED
+  // recalculate based on intensity; WAFFLES SKIPPED and TIME SAVED
   // are historical session counters that don't change.
 
   function updateStats(status) {
