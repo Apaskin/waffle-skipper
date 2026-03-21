@@ -26,24 +26,10 @@
       <div class="panel-label">NOW PLAYING</div>
       <div class="video-title" id="video-title">NO VIDEO DETECTED</div>
       <div class="analysis-status" id="analysis-status">Navigate to a YouTube video</div>
-    </section>
-
-    <!-- ============ MODE SELECTOR — 3 chunky arcade buttons ============ -->
-    <section class="panel" id="mode-section">
-      <div class="panel-label">MODE SELECT</div>
-      <div class="mode-row">
-        <button class="mode-btn active" id="mode-auto" data-mode="auto" title="Auto-skip waffle segments">
-          <span class="mode-icon">⚡</span>
-          <span class="mode-text">AUTO</span>
-        </button>
-        <button class="mode-btn" id="mode-manual" data-mode="manual" title="Highlight waffle but don't skip">
-          <span class="mode-icon">👆</span>
-          <span class="mode-text">MANUAL</span>
-        </button>
-        <button class="mode-btn" id="mode-off" data-mode="off" title="Disable waffle detection">
-          <span class="mode-icon">😴</span>
-          <span class="mode-text">OFF</span>
-        </button>
+      <!-- Auto-skip toggle — label left, button right, single compact line -->
+      <div class="auto-skip-section">
+        <span class="auto-skip-label">AUTO SKIP</span>
+        <button id="btn-auto-toggle" class="auto-toggle on">ON ⚡</button>
       </div>
     </section>
 

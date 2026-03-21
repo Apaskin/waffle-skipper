@@ -231,65 +231,59 @@ body {
 }
 
 /* ============================================================
-   Mode selector — 3 chunky arcade buttons
+   Auto-skip toggle — compact single-line row inside status panel
    ============================================================ */
-#mode-section {
-  border-color: rgba(226, 183, 20, 0.2);
-}
-
-.mode-row {
+.auto-skip-section {
   display: flex;
-  gap: 6px;
-}
-
-.mode-btn {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 4px;
-  padding: 8px 4px 7px;
-  border-radius: 7px;
-  border: 2px solid var(--line);
-  background: rgba(10, 14, 32, 0.8);
+  justify-content: space-between;
+  margin-top: 2px;
+}
+
+.auto-skip-label {
+  font-size: 7px;
   color: var(--dim);
+  letter-spacing: 1.5px;
+}
+
+.auto-toggle {
+  padding: 5px 12px;
+  border-radius: 5px;
   font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  letter-spacing: 0.5px;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
-.mode-icon {
-  font-size: 16px;
-  line-height: 1;
+/* ON state — green background, glow */
+.auto-toggle.on {
+  background: rgba(0, 255, 65, 0.15);
+  border: 2px solid var(--green);
+  color: var(--green);
+  box-shadow: 0 0 10px var(--green-glow);
 }
 
-.mode-text {
-  font-size: 7px;
-  letter-spacing: 0.6px;
-}
-
-.mode-btn:hover {
-  filter: brightness(1.3);
+.auto-toggle.on:hover {
+  background: rgba(0, 255, 65, 0.25);
+  box-shadow: 0 0 16px var(--green-glow);
   transform: translateY(-1px);
-  border-color: rgba(226, 183, 20, 0.4);
 }
 
-.mode-btn:active {
+/* OFF state — dark, dim border, no glow */
+.auto-toggle.off {
+  background: #1a1a2e;
+  border: 2px solid rgba(90, 105, 136, 0.4);
+  color: var(--dim);
+}
+
+.auto-toggle.off:hover {
+  border-color: var(--dim);
+  filter: brightness(1.2);
+}
+
+.auto-toggle:active {
   transform: scale(0.96);
-}
-
-/* Active mode: gold border + glow */
-.mode-btn.active {
-  border-color: var(--gold);
-  color: var(--gold);
-  background: rgba(226, 183, 20, 0.08);
-  box-shadow: 0 0 14px var(--gold-glow), inset 0 0 12px rgba(226, 183, 20, 0.06);
-  animation: modeActivePulse 2s ease-in-out infinite;
-}
-
-@keyframes modeActivePulse {
-  0%, 100% { box-shadow: 0 0 14px var(--gold-glow), inset 0 0 12px rgba(226,183,20,0.06); }
-  50%      { box-shadow: 0 0 22px var(--gold-glow), inset 0 0 16px rgba(226,183,20,0.10); }
 }
 
 /* ============================================================

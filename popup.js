@@ -13,24 +13,24 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // ============================================================
-  // Mode selector: AUTO / MANUAL / OFF
+  // Auto-skip toggle — single boolean, stored in chrome.storage.sync
   // ============================================================
+  // Writing autoSkipEnabled triggers the storage.onChanged listener in
+  // content.js, which updates the skip behaviour immediately.
 
-  const modeBtns = document.querySelectorAll('.mode-btn');
-  const { skipMode = 'auto' } = await chrome.storage.sync.get('skipMode');
-  setActiveMode(skipMode);
+  const btnAutoToggle = document.getElementById('btn-auto-toggle');
+  const { autoSkipEnabled: initAutoSkip = true } = await chrome.storage.sync.get('autoSkipEnabled');
+  setToggleState(initAutoSkip);
 
-  modeBtns.forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const mode = btn.dataset.mode;
-      const autoSkip = mode === 'auto';
-      await chrome.storage.sync.set({ skipMode: mode, autoSkipEnabled: autoSkip });
-      setActiveMode(mode);
-    });
+  btnAutoToggle.addEventListener('click', async () => {
+    const next = !btnAutoToggle.classList.contains('on');
+    await chrome.storage.sync.set({ autoSkipEnabled: next });
+    setToggleState(next);
   });
 
-  function setActiveMode(mode) {
-    modeBtns.forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+  function setToggleState(enabled) {
+    btnAutoToggle.textContent = enabled ? 'ON ⚡' : 'OFF';
+    btnAutoToggle.className = `auto-toggle ${enabled ? 'on' : 'off'}`;
   }
 
   // ============================================================

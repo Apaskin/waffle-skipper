@@ -339,18 +339,38 @@
       // Store data for tooltip and click handling
       segEl.dataset.start = segment.start;
       segEl.dataset.end = segment.end;
-      segEl.dataset.type = segment.type;
+      segEl.dataset.type = effectiveType;
       segEl.dataset.text = segment.text || '';
 
       // Hover tooltip
       segEl.addEventListener('mouseenter', showTooltip);
       segEl.addEventListener('mouseleave', hideTooltip);
 
+      // Click-to-skip: clicking an orange (waffle) segment jumps to its end.
+      // stopPropagation prevents the timeline container's proportional-seek handler
+      // from also firing. Works regardless of the auto-skip toggle state.
+      if (effectiveType === 'waffle') {
+        segEl.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const vid = document.querySelector('video');
+          if (!vid) return;
+          const end = parseFloat(segEl.dataset.end);
+          vid.currentTime = end;
+          console.log(`[Waffle Skipper] CLICK SKIP: -> ${formatTime(end)}`);
+        });
+      }
+
       timelineEl.appendChild(segEl);
     }
 
     // Inject below YouTube's progress bar
     injectTimeline(timelineEl);
+
+    // Re-attach timeupdate listener now that we have a confirmed live video reference.
+    // analyzeVideo() also calls enableAutoSkip(), but if renderTimeline() deferred due
+    // to duration === 0 (loadedmetadata path), the video reference may have changed.
+    // Calling here is safe — enableAutoSkip() always removes the old listener first.
+    enableAutoSkip();
   }
 
   function injectTimeline(el) {
@@ -563,7 +583,12 @@
 
       event.preventDefault();
       video.currentTime = targetTime;
-      if (event.shiftKey && targetSegment && targetSegment.type === 'waffle') {
+      const targetIsWaffle = targetSegment && (
+        targetSegment.waffle_confidence !== undefined
+          ? targetSegment.waffle_confidence >= waffleThreshold
+          : targetSegment.type === 'waffle'
+      );
+      if (event.shiftKey && targetIsWaffle) {
         bypassAutoSkipUntil = targetSegment.end;
         console.log(`[Waffle Skipper] Auto-skip bypass armed until ${formatTime(targetSegment.end)} (manual review)`);
       } else {
@@ -578,7 +603,13 @@
   function findNextSubstanceStart(currentTime) {
     const threshold = currentTime + 0.5;
     const next = segments
-      .filter(segment => segment.type === 'substance')
+      .filter(segment => {
+        // Use confidence threshold (new format) with legacy type fallback
+        const isWaffle = segment.waffle_confidence !== undefined
+          ? segment.waffle_confidence >= waffleThreshold
+          : segment.type === 'waffle';
+        return !isWaffle; // we want substance segments
+      })
       .sort((a, b) => a.start - b.start)
       .find(segment => segment.start > threshold);
     return next ? next.start : null;
