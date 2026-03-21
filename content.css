@@ -244,6 +244,27 @@
   text-shadow: 0 0 8px rgba(255, 107, 53, 0.3);
 }
 
+/* Daily limit reached — softer appearance, not a failure state */
+#waffle-error.waffle-limit-reached {
+  border-color: rgba(226, 183, 20, 0.25);
+  background: linear-gradient(180deg, rgba(18, 18, 30, 0.95), rgba(10, 10, 22, 0.95));
+  box-shadow: 0 0 6px rgba(226, 183, 20, 0.1);
+  gap: 8px;
+}
+
+.waffle-upgrade-link {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 6px;
+  color: var(--ws-gold);
+  text-decoration: none;
+  text-shadow: 0 0 6px rgba(226, 183, 20, 0.4);
+  letter-spacing: 0.5px;
+}
+
+.waffle-upgrade-link:hover {
+  text-decoration: underline;
+}
+
 @keyframes scanBlink {
   0%, 100% { opacity: 1; }
   50%      { opacity: 0.3; }

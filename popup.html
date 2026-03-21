@@ -124,19 +124,36 @@
       </div>
     </section>
 
-    <!-- ============ CREDITS — tier badge + credit counter ============ -->
-    <section class="panel" id="credits-section">
-      <div class="credits-header">
-        <span class="tier-badge" id="tier-badge">FREE</span>
-        <span class="credits-text" id="credits-text">-- of -- scans</span>
+    <!-- ============ USAGE INDICATOR ============ -->
+    <!-- Three states managed by popup.js: free-counter, limit-reached, licensed -->
+    <section class="panel usage-panel" id="usage-section" style="display:none">
+
+      <!-- Free tier: scans remaining today -->
+      <div class="usage-free" id="usage-free" style="display:none">
+        <div class="usage-free-label">🧇 <span id="usage-count">0</span> of 3 free scans today</div>
+        <div class="usage-bar-track">
+          <div class="usage-bar-fill" id="usage-bar-fill" style="width:0%"></div>
+        </div>
       </div>
-      <div class="credits-bar-track">
-        <div class="credits-bar-fill" id="credits-bar-fill" style="width:100%"></div>
+
+      <!-- Limit reached: upgrade prompt -->
+      <div class="usage-limit" id="usage-limit" style="display:none">
+        <div class="usage-limit-label">🧇 DAILY LIMIT REACHED</div>
+        <div class="usage-limit-sub">Upgrade for unlimited scans</div>
+        <button class="btn-upgrade-pro" id="btn-upgrade-pro">GET WOFFLE PRO</button>
       </div>
-      <div class="credits-actions">
-        <button class="btn-upgrade" id="btn-upgrade">UPGRADE</button>
-        <button class="btn-topup" id="btn-topup">BUY CREDITS</button>
+
+      <!-- Licensed: pro badge -->
+      <div class="usage-licensed" id="usage-licensed" style="display:none">
+        🧇 WOFFLE PRO — UNLIMITED
       </div>
+
+    </section>
+
+    <!-- ============ API KEY WARNING — shown when no key is set ============ -->
+    <section class="panel api-key-warning" id="api-key-section" style="display:none">
+      <div class="api-key-message">⚠️ API KEY NEEDED</div>
+      <button class="btn-gold" id="btn-set-api-key">SET UP API KEY</button>
     </section>
 
     <!-- ============ FOOTER ============ -->

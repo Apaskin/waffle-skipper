@@ -21,51 +21,52 @@
       </div>
     </header>
 
-    <!-- ============ AUTH SECTION — shown when NOT logged in ============ -->
-    <section class="options-section" id="auth-section">
-      <p class="section-title green-text">🧇 SIGN IN TO SKIP THE FLUFF</p>
-      <div class="welcome-steps">
-        <p>Create a free account to get 10 video scans per month. Upgrade anytime for more.</p>
-      </div>
+    <!-- ============ LICENSE KEY SECTION ============ -->
+    <!-- Shown when NOT yet licensed. Hidden once activated. -->
+    <section class="options-section" id="license-section">
+      <p class="section-title green-text">🔑 LICENSE KEY</p>
       <div class="terminal-box">
-        <span class="terminal-prompt">@</span>
-        <input type="email" id="auth-email" class="terminal-input" placeholder="email@example.com" autocomplete="email" spellcheck="false">
-      </div>
-      <div class="terminal-box">
-        <span class="terminal-prompt">*</span>
-        <input type="password" id="auth-password" class="terminal-input" placeholder="password" autocomplete="current-password">
+        <span class="terminal-prompt">&gt;</span>
+        <input type="text" id="license-input" class="terminal-input" placeholder="WOFFLE-XXXX-XXXX-XXXX-XXXX" autocomplete="off" spellcheck="false" maxlength="24">
       </div>
       <div class="button-row">
-        <button id="btn-login" class="btn-gold">SIGN IN</button>
-        <button id="btn-signup" class="btn-dim-wide">SIGN UP</button>
+        <button id="btn-activate-license" class="btn-gold">ACTIVATE</button>
+        <button id="btn-remove-license" class="btn-dim-wide" style="display:none">REMOVE KEY</button>
       </div>
-      <div id="auth-status" class="status-message"></div>
+      <div id="license-status" class="status-message"></div>
+      <p class="section-hint">Don't have a key? Woffle includes 3 free scans per day. Upgrade to unlimited at <a href="https://woffle.app" target="_blank" class="help-link">woffle.app</a></p>
     </section>
 
-    <!-- ============ ACCOUNT SECTION — shown when logged in ============ -->
-    <section class="options-section" id="account-section" style="display:none">
-      <p class="section-title">ACCOUNT</p>
-      <div class="account-info">
-        <div class="account-row">
-          <span class="account-label">EMAIL</span>
-          <span class="account-value" id="account-email">--</span>
-        </div>
-        <div class="account-row">
-          <span class="account-label">TIER</span>
-          <span class="account-value" id="account-tier">FREE</span>
-        </div>
-        <div class="account-row">
-          <span class="account-label">CREDITS</span>
-          <span class="account-value" id="account-credits">-- / --</span>
-        </div>
-        <div class="account-row">
-          <span class="account-label">RESETS</span>
-          <span class="account-value" id="account-reset">--</span>
-        </div>
+    <!-- Shown instead of license-section when already activated -->
+    <section class="options-section license-active-section" id="license-active-section" style="display:none">
+      <p class="section-title green-text">✅ LICENSED — UNLIMITED SCANS</p>
+      <p class="section-hint">Your Woffle Pro license is active. No daily limits.</p>
+      <button id="btn-deactivate-license" class="btn-dim-wide">REMOVE LICENSE KEY</button>
+    </section>
+
+    <!-- ============ API KEY SECTION ============ -->
+    <section class="options-section" id="apikey-section">
+      <p class="section-title green-text">🧇 ENTER YOUR CLAUDE API KEY</p>
+      <div class="welcome-steps">
+        <p>Woffle calls the Claude API directly from your browser. You provide your own key — no account needed.</p>
+      </div>
+      <div class="terminal-box">
+        <span class="terminal-prompt">&gt;</span>
+        <input type="password" id="apikey-input" class="terminal-input" placeholder="sk-ant-api03-..." autocomplete="off" spellcheck="false">
       </div>
       <div class="button-row">
-        <button id="btn-manage-subscription" class="btn-gold">MANAGE SUBSCRIPTION</button>
-        <button id="btn-logout" class="btn-dim-wide">LOG OUT</button>
+        <button id="btn-save-key" class="btn-gold">SAVE KEY</button>
+        <button id="btn-clear-key" class="btn-dim-wide">CLEAR KEY</button>
+      </div>
+      <div id="apikey-status" class="status-message"></div>
+
+      <!-- Help section -->
+      <div class="help-section">
+        <p class="section-hint">Don't have a key? Get one at <a href="https://console.anthropic.com" target="_blank" class="help-link">console.anthropic.com</a> — it takes 2 minutes. New accounts get $5 free credit.</p>
+        <details class="cost-details">
+          <summary class="cost-summary">What will this cost me?</summary>
+          <p class="cost-body">Woffle uses about 3-5 cents per video analysis. $5 of API credit covers ~100-150 videos.</p>
+        </details>
       </div>
     </section>
 
@@ -79,7 +80,7 @@
 
     <!-- About -->
     <footer class="options-footer">
-      <p class="version-text">V0.4.0 — SKIP THE FLUFF. GET THE STUFF.</p>
+      <p class="version-text">V0.5.0 — SKIP THE FLUFF. GET THE STUFF.</p>
     </footer>
 
   </div>

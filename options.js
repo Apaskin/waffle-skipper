@@ -1,6 +1,6 @@
 // options.js — Woffle settings page.
-// Handles Supabase email/password auth (replaces the old API key input),
-// shows account info for logged-in users, and manages local cache.
+// Handles license key activation, API key input (BYOK), validation via
+// test API call, and local cache management.
 
 document.addEventListener('DOMContentLoaded', async () => {
 
@@ -8,181 +8,180 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Element references
   // ============================================================
 
-  const authSection    = document.getElementById('auth-section');
-  const accountSection = document.getElementById('account-section');
-  const emailInput     = document.getElementById('auth-email');
-  const passwordInput  = document.getElementById('auth-password');
-  const btnLogin       = document.getElementById('btn-login');
-  const btnSignup      = document.getElementById('btn-signup');
-  const authStatus     = document.getElementById('auth-status');
-  const btnLogout      = document.getElementById('btn-logout');
-  const btnManageSub   = document.getElementById('btn-manage-subscription');
-  const clearCacheBtn  = document.getElementById('btn-clear-cache');
-  const cacheStatus    = document.getElementById('cache-status');
+  const licenseSection       = document.getElementById('license-section');
+  const licenseActiveSection = document.getElementById('license-active-section');
+  const licenseInput         = document.getElementById('license-input');
+  const btnActivateLicense   = document.getElementById('btn-activate-license');
+  const btnRemoveLicense     = document.getElementById('btn-remove-license');
+  const btnDeactivateLicense = document.getElementById('btn-deactivate-license');
+  const licenseStatus        = document.getElementById('license-status');
+
+  const apikeyInput   = document.getElementById('apikey-input');
+  const btnSaveKey    = document.getElementById('btn-save-key');
+  const btnClearKey   = document.getElementById('btn-clear-key');
+  const apikeyStatus  = document.getElementById('apikey-status');
+  const clearCacheBtn = document.getElementById('btn-clear-cache');
+  const cacheStatus   = document.getElementById('cache-status');
 
   // ============================================================
-  // Check if already logged in
+  // License key — check current state on load
   // ============================================================
 
-  const session = await new Promise(resolve => {
-    chrome.storage.local.get('woffle_session', r => resolve(r.woffle_session || null));
-  });
-
-  if (session && session.access_token) {
-    showLoggedInState(session.user?.email || '');
+  const usageState = await chrome.runtime.sendMessage({ type: 'GET_USAGE_STATE' });
+  if (usageState && usageState.licensed) {
+    showLicensedState();
   }
 
   // ============================================================
-  // Login
+  // License key — activate
   // ============================================================
 
-  btnLogin.addEventListener('click', async () => {
-    const email = emailInput.value.trim();
-    const password = passwordInput.value;
+  btnActivateLicense.addEventListener('click', async () => {
+    const key = licenseInput.value.trim().toUpperCase();
 
-    if (!email || !password) {
-      showAuthStatus('ENTER EMAIL + PASSWORD', 'error');
+    if (!key) {
+      showLicenseStatus('ENTER A LICENSE KEY', 'error');
       return;
     }
 
-    btnLogin.textContent = 'SIGNING IN...';
-    btnLogin.disabled = true;
+    btnActivateLicense.textContent = 'ACTIVATING...';
+    btnActivateLicense.disabled = true;
 
     try {
-      const result = await chrome.runtime.sendMessage({
-        type: 'LOGIN',
-        email,
-        password,
-      });
+      const result = await chrome.runtime.sendMessage({ type: 'VALIDATE_LICENSE_KEY', key });
 
-      if (result.error) {
-        showAuthStatus(result.error, 'error');
-        btnLogin.textContent = 'SIGN IN';
-        btnLogin.disabled = false;
-        return;
-      }
-
-      showAuthStatus('ACCESS GRANTED ✓', 'success');
-      setTimeout(() => showLoggedInState(email), 800);
-    } catch (err) {
-      showAuthStatus('CONNECTION ERROR', 'error');
-      btnLogin.textContent = 'SIGN IN';
-      btnLogin.disabled = false;
-    }
-  });
-
-  // ============================================================
-  // Signup
-  // ============================================================
-
-  btnSignup.addEventListener('click', async () => {
-    const email = emailInput.value.trim();
-    const password = passwordInput.value;
-
-    if (!email || !password) {
-      showAuthStatus('ENTER EMAIL + PASSWORD', 'error');
-      return;
-    }
-
-    if (password.length < 6) {
-      showAuthStatus('PASSWORD TOO SHORT (6+ CHARS)', 'error');
-      return;
-    }
-
-    btnSignup.textContent = 'CREATING...';
-    btnSignup.disabled = true;
-
-    try {
-      const result = await chrome.runtime.sendMessage({
-        type: 'SIGNUP',
-        email,
-        password,
-      });
-
-      if (result.error) {
-        showAuthStatus(result.error, 'error');
-        btnSignup.textContent = 'SIGN UP';
-        btnSignup.disabled = false;
-        return;
-      }
-
-      if (result.confirmed) {
-        showAuthStatus('ACCOUNT CREATED ✓', 'success');
-        setTimeout(() => showLoggedInState(email), 800);
+      if (result && result.valid) {
+        showLicensedState();
+        showLicenseStatus('ACTIVATED ✓', 'success');
       } else {
-        // Email confirmation required
-        showAuthStatus('CHECK YOUR EMAIL TO CONFIRM', 'info');
-        btnSignup.textContent = 'SIGN UP';
-        btnSignup.disabled = false;
+        showLicenseStatus('INVALID KEY FORMAT ✗', 'error');
+        btnActivateLicense.textContent = 'ACTIVATE';
+        btnActivateLicense.disabled = false;
       }
     } catch (err) {
-      showAuthStatus('CONNECTION ERROR', 'error');
-      btnSignup.textContent = 'SIGN UP';
-      btnSignup.disabled = false;
+      showLicenseStatus('ERROR — TRY AGAIN', 'error');
+      btnActivateLicense.textContent = 'ACTIVATE';
+      btnActivateLicense.disabled = false;
     }
   });
 
-  // ============================================================
-  // Logout
-  // ============================================================
-
-  btnLogout.addEventListener('click', async () => {
-    await chrome.runtime.sendMessage({ type: 'LOGOUT' });
-    authSection.style.display = '';
-    accountSection.style.display = 'none';
-    emailInput.value = '';
-    passwordInput.value = '';
-    btnLogin.textContent = 'SIGN IN';
-    btnLogin.disabled = false;
-    btnSignup.textContent = 'SIGN UP';
-    btnSignup.disabled = false;
+  // Allow Enter key in the license input to trigger activate
+  licenseInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') btnActivateLicense.click();
   });
 
   // ============================================================
-  // Manage subscription (Stripe Customer Portal)
+  // License key — deactivate / remove
   // ============================================================
 
-  btnManageSub.addEventListener('click', async () => {
-    try {
-      const result = await chrome.runtime.sendMessage({ type: 'GET_PORTAL_URL' });
-      if (result && result.url) {
-        chrome.tabs.create({ url: result.url });
-      } else {
-        showCacheStatus(result?.message || 'NO SUBSCRIPTION FOUND', 'error');
-      }
-    } catch (err) {
-      showCacheStatus('CONNECTION ERROR', 'error');
-    }
-  });
+  async function deactivateLicense() {
+    await chrome.runtime.sendMessage({ type: 'REMOVE_LICENSE_KEY' });
+    licenseSection.style.display = '';
+    licenseActiveSection.style.display = 'none';
+    licenseInput.value = '';
+    btnActivateLicense.textContent = 'ACTIVATE';
+    btnActivateLicense.disabled = false;
+    showLicenseStatus('LICENSE REMOVED', 'info');
+  }
+
+  btnDeactivateLicense.addEventListener('click', deactivateLicense);
+  btnRemoveLicense.addEventListener('click', deactivateLicense);
 
   // ============================================================
-  // Show logged-in state — hide auth form, show account info
+  // Helper — toggle between unlicensed and licensed UI states
   // ============================================================
 
-  async function showLoggedInState(email) {
-    authSection.style.display = 'none';
-    accountSection.style.display = '';
+  function showLicensedState() {
+    licenseSection.style.display = 'none';
+    licenseActiveSection.style.display = '';
+  }
 
-    document.getElementById('account-email').textContent = email || '--';
-
-    // Fetch full user state from backend
-    try {
-      const userState = await chrome.runtime.sendMessage({ type: 'GET_USER_STATE' });
-      if (userState && !userState.error) {
-        const tierLabels = { free: 'FREE', plus: 'PLUS ⚡', pro: 'PRO 🔥' };
-        document.getElementById('account-tier').textContent =
-          tierLabels[userState.tier] || 'FREE';
-        document.getElementById('account-credits').textContent =
-          `${userState.credits_remaining} / ${userState.credits_monthly_limit}`;
-        document.getElementById('account-reset').textContent =
-          userState.credits_reset_at
-            ? new Date(userState.credits_reset_at).toLocaleDateString()
-            : '--';
-      }
-    } catch (err) {
-      console.log('[Woffle] Could not fetch user state:', err.message);
+  function showLicenseStatus(text, type) {
+    licenseStatus.textContent = text;
+    licenseStatus.className = `status-message ${type}`;
+    licenseStatus.style.display = 'block';
+    if (type !== 'success') {
+      setTimeout(() => { licenseStatus.style.display = 'none'; }, 4000);
     }
   }
+
+  // ============================================================
+  // Load existing API key (masked display)
+  // ============================================================
+
+  const { anthropicApiKey: existingKey } = await chrome.storage.sync.get('anthropicApiKey');
+  if (existingKey) {
+    // Show masked version so user knows a key is saved
+    apikeyInput.placeholder = existingKey.slice(0, 12) + '...' + existingKey.slice(-4);
+    showApikeyStatus('ACCESS GRANTED ✓', 'success');
+  }
+
+  // ============================================================
+  // Save API key — validate with a tiny test call first
+  // ============================================================
+
+  btnSaveKey.addEventListener('click', async () => {
+    const key = apikeyInput.value.trim();
+
+    if (!key) {
+      showApikeyStatus('ENTER AN API KEY', 'error');
+      return;
+    }
+
+    // Basic format check — Anthropic keys start with sk-ant-
+    if (!key.startsWith('sk-ant-')) {
+      showApikeyStatus('INVALID KEY FORMAT — SHOULD START WITH sk-ant-', 'error');
+      return;
+    }
+
+    btnSaveKey.textContent = 'VALIDATING...';
+    btnSaveKey.disabled = true;
+
+    try {
+      // Send a tiny test message to Haiku to validate the key
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': key,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 16,
+          messages: [{ role: 'user', content: 'hi' }],
+        }),
+      });
+
+      if (response.ok) {
+        // Key works — save it
+        await chrome.storage.sync.set({ anthropicApiKey: key });
+        apikeyInput.value = '';
+        apikeyInput.placeholder = key.slice(0, 12) + '...' + key.slice(-4);
+        showApikeyStatus('ACCESS GRANTED ✓', 'success');
+      } else {
+        const err = await response.json().catch(() => ({}));
+        const msg = err.error?.message || `HTTP ${response.status}`;
+        showApikeyStatus(`INVALID KEY ✗ — ${msg}`, 'error');
+      }
+    } catch (err) {
+      showApikeyStatus('CONNECTION ERROR — CHECK YOUR NETWORK', 'error');
+    }
+
+    btnSaveKey.textContent = 'SAVE KEY';
+    btnSaveKey.disabled = false;
+  });
+
+  // ============================================================
+  // Clear API key
+  // ============================================================
+
+  btnClearKey.addEventListener('click', async () => {
+    await chrome.storage.sync.remove('anthropicApiKey');
+    apikeyInput.value = '';
+    apikeyInput.placeholder = 'sk-ant-api03-...';
+    showApikeyStatus('KEY REMOVED', 'info');
+  });
 
   // ============================================================
   // Clear local cache
@@ -205,11 +204,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Status message helpers
   // ============================================================
 
-  function showAuthStatus(text, type) {
-    authStatus.textContent = text;
-    authStatus.className = `status-message ${type}`;
-    authStatus.style.display = 'block';
-    setTimeout(() => { authStatus.style.display = 'none'; }, 4000);
+  function showApikeyStatus(text, type) {
+    apikeyStatus.textContent = text;
+    apikeyStatus.className = `status-message ${type}`;
+    apikeyStatus.style.display = 'block';
+    // Don't auto-hide success so user can see their key is saved
+    if (type !== 'success') {
+      setTimeout(() => { apikeyStatus.style.display = 'none'; }, 4000);
+    }
   }
 
   function showCacheStatus(text, type) {

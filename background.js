@@ -1,27 +1,127 @@
 // background.js — Woffle service worker.
-// Handles transcript fetching from YouTube, chunking, and communication with
-// the Woffle backend (Cloudflare Worker) for AI classification.
+// Handles transcript fetching from YouTube, chunking, and direct Claude API
+// calls for AI classification. BYOK model — user provides their own
+// Anthropic API key, stored in chrome.storage.sync.
 //
 // Two-pass architecture:
 //   Pass 1 (Quick): Haiku scans first 90s for instant intro skip (~1-2s)
 //   Pass 2 (Full):  Sonnet streams full analysis via SSE (~10-15s)
 // Both fire simultaneously on SCAN. Segments forwarded to content script
 // incrementally as they arrive.
-//
-// No direct Claude API calls — all analysis goes through the backend proxy
-// which manages credits, shared cache, and the Anthropic API key.
 
 // ============================================================
-// Backend + Supabase configuration
+// Models + API config
 // ============================================================
-// These are non-secret values safe to bundle in the extension.
-// The actual API keys live in the Cloudflare Worker's environment.
 
-const WOFFLE_CONFIG = {
-  WORKER_URL: 'https://woffle-api.andrewpaskin.workers.dev',
-  SUPABASE_URL: 'https://ujnpvbkncorgjqnbkfsa.supabase.co',
-  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVqbnB2YmtuY29yZ2pxbmJrZnNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwMTYyNTAsImV4cCI6MjA4OTU5MjI1MH0.Jr3myWTmWUs58EgRzS_7iuJ4LzBOP2pn647fbgrDxGU',
-};
+const HAIKU_MODEL = 'claude-haiku-4-5-20251001';
+const SONNET_MODEL = 'claude-sonnet-4-5-20250929';
+const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
+const ANTHROPIC_VERSION = '2023-06-01';
+
+// ============================================================
+// Prompts — copied verbatim from worker/src/services/claude.ts
+// ============================================================
+
+const QUICK_INTRO_PROMPT = `You detect where a YouTube video's actual content begins.
+The intro typically contains: greetings, pleasantries, weather chat,
+"hope you're doing well", sponsor reads, "before we get into it" padding,
+channel branding, subscribe requests.
+
+Given the first 90 seconds of transcript, find where the REAL CONTENT
+starts — the first moment the speaker discusses the actual video topic.
+
+Respond with ONLY this JSON (no other text):
+{"intro_ends_at": <seconds>, "intro_type": "pleasantries|sponsor|branding|none", "topic_starts": "brief description of what the real content is about"}
+
+If the video jumps straight into content with no intro padding,
+respond: {"intro_ends_at": 0, "intro_type": "none", "topic_starts": "..."}`;
+
+const FULL_SYSTEM_PROMPT = `You analyse YouTube video transcripts to detect filler content ("woffle") — anything that wastes the viewer's time.
+
+STEP 1: Read the video title and full transcript. Identify the VIDEO TOPIC in one sentence. This is your anchor — everything is judged against it.
+
+STEP 2: Create natural segments based on content shifts (NOT fixed time intervals). Each segment should be one coherent block: a greeting, an anecdote, a teaching section, a sponsor read, etc. Segments can be 10 seconds to several minutes.
+
+STEP 3: Score each segment's woffle_confidence (0-100):
+
+95-100 DEFINITE WOFFLE:
+- Sponsor reads, ad segments, paid promotions
+- "Like and subscribe", "hit the bell", "leave a comment below"
+- Patreon, merch, social media plugs
+- Channel branding intros/outros with zero content
+
+85-94 STRONG WOFFLE:
+- Generic pleasantries: "hope you're having a great day", weather chat, "how's everyone doing"
+- Personal life updates unrelated to topic: what they ate, their commute, weekend plans
+- "Before we get into it..." padding that doesn't get into anything
+- Repetition of something already covered (same point rephrased)
+- Thanking other creators, shoutouts unrelated to content
+- Co-host reactions that add nothing: "wow", "that's crazy", "yeah totally", "right right right"
+- Co-host echoing/rephrasing what the main speaker just said without new information
+- Co-host tangents and musings that nobody came to hear
+
+70-84 PROBABLE WOFFLE:
+- Personal anecdotes entertaining but not advancing the topic
+- Extended examples repeating a point already made
+- Off-topic digressions that eventually circle back
+- Overly long context-setting that could be 80% shorter
+
+50-69 BORDERLINE:
+- Background context some viewers want, others don't
+- Stories illustrating the point but taking too long
+- Slow introductions of people/concepts needed later
+
+25-49 MOSTLY SUBSTANCE:
+- On-topic but slightly verbose or meandering
+- Good content with minor padding
+
+0-24 PURE SUBSTANCE:
+- Core content directly about the video topic
+- Key stories that ARE the content
+- Essential context, conclusions, actionable takeaways
+- Questions from interviewer/co-host that genuinely advance the conversation
+
+PODCAST/INTERVIEW RULES:
+- Identify the PRIMARY speaker (guest, expert, storyteller). Their on-topic content is almost always substance.
+- Co-hosts/interviewers who merely react, echo, or rephrase = woffle (85-90).
+- Co-hosts who ask NEW questions or introduce NEW information = substance.
+- Test: if you removed this segment, would the viewer miss any information? If no → woffle.
+
+CRITICAL RULES:
+- Be AGGRESSIVE about detecting woffle. Viewers came for the topic, not padding.
+- A typical 10-minute video has 2-4 minutes of woffle. If you find zero, you're too lenient.
+- Every second of the video must be covered — no gaps between segments.
+- Merge adjacent segments with similar scores (within 10 points).
+- Create your own segment boundaries based on natural content shifts — do NOT use fixed-length segments. A segment should be one coherent block of content: a complete anecdote, a sponsor read, a greeting sequence, a teaching section, etc. Segments can range from 10 seconds to several minutes depending on content.
+
+Classify each segment's category (exactly one):
+- "sponsor" — paid promotion or ad read
+- "self_promo" — subscribe, bell, merch, patreon, social plugs
+- "pleasantries" — greetings, weather, hope you're well, generic chat
+- "tangent" — off-topic story or digression
+- "repetition" — restating something already covered
+- "cohost_echo" — co-host repeating, reacting, or echoing without substance
+- "filler" — ums, dead air, "so yeah", padding words
+- "intro_outro" — channel branding, opening/closing sequences with no content
+- "context" — background info, setup for the main topic
+- "substance" — core content about the video topic
+
+Respond ONLY with valid JSON. No markdown, no explanation, no preamble.
+
+Format:
+{"video_topic": "one sentence about what this video covers", "segments": [{"start": 0, "end": 45, "woffle_confidence": 92, "category": "pleasantries", "label": "Host greets viewers and chats about the weather"}, ...]}`;
+
+// ============================================================
+// License key config
+// ============================================================
+// Format: WOFFLE-XXXX-XXXX-XXXX-XXXX (alphanumeric groups)
+// Pre-launch: any key matching the format is accepted as valid.
+// Post-launch: we'll swap this for a Gumroad/LemonSqueezy API call,
+// re-using the same storage key and 7-day re-validation interval.
+
+const LICENSE_KEY_REGEX = /^WOFFLE-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/;
+const FREE_DAILY_LIMIT = 3;
+const LICENSE_REVALIDATE_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 // ============================================================
 // Extension lifecycle
@@ -35,117 +135,88 @@ chrome.runtime.onInstalled.addListener((details) => {
 });
 
 // ============================================================
-// Auth helpers — Supabase JWT stored in chrome.storage.local
+// API key helper — read from chrome.storage.sync
 // ============================================================
 
-// Get the stored auth session (access_token + refresh_token + user).
-// Returns null if the user isn't logged in.
-async function getAuthSession() {
+async function getApiKey() {
   return new Promise((resolve) => {
-    chrome.storage.local.get('woffle_session', (result) => {
-      resolve(result.woffle_session || null);
+    chrome.storage.sync.get('anthropicApiKey', (result) => {
+      resolve(result.anthropicApiKey || null);
     });
   });
 }
 
-// Store an auth session after login.
-async function setAuthSession(session) {
+// ============================================================
+// License key helpers
+// ============================================================
+
+// Read the stored license validation record from chrome.storage.sync.
+// Returns { key, valid, validatedAt } or null.
+async function getLicenseRecord() {
   return new Promise((resolve) => {
-    chrome.storage.local.set({ woffle_session: session }, resolve);
+    chrome.storage.sync.get('woffleLicenseRecord', (result) => {
+      resolve(result.woffleLicenseRecord || null);
+    });
   });
 }
 
-// Clear the auth session (logout).
-async function clearAuthSession() {
+// Check if the user has a currently-valid license.
+// Re-validates on a 7-day schedule for future server-side checks.
+async function hasValidLicense() {
+  const record = await getLicenseRecord();
+  if (!record || !record.valid || !record.key) return false;
+
+  // Re-validate if the record is older than the revalidation interval.
+  // Pre-launch: re-validation just re-checks the format (always passes).
+  // Post-launch: swap for a Gumroad/LemonSqueezy API call here.
+  const age = Date.now() - (record.validatedAt || 0);
+  if (age > LICENSE_REVALIDATE_INTERVAL_MS) {
+    const stillValid = LICENSE_KEY_REGEX.test(record.key);
+    await chrome.storage.sync.set({
+      woffleLicenseRecord: { ...record, valid: stillValid, validatedAt: Date.now() }
+    });
+    return stillValid;
+  }
+
+  return true;
+}
+
+// Validate a license key string. Returns { valid, key }.
+// Pre-launch: accepts any key matching the WOFFLE-XXXX-XXXX-XXXX-XXXX format.
+function validateLicenseFormat(key) {
+  if (!key || typeof key !== 'string') return { valid: false, key };
+  return { valid: LICENSE_KEY_REGEX.test(key.trim().toUpperCase()), key: key.trim().toUpperCase() };
+}
+
+// ============================================================
+// Daily usage helpers — stored in chrome.storage.local
+// ============================================================
+// Resets each calendar day. Cache hits do NOT count toward the limit —
+// only fresh API calls do. Format: { count: 2, date: '2026-03-21' }
+
+function todayString() {
+  return new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+}
+
+async function getDailyUsage() {
   return new Promise((resolve) => {
-    chrome.storage.local.remove('woffle_session', resolve);
+    chrome.storage.local.get('woffle_daily_usage', (result) => {
+      const usage = result.woffle_daily_usage;
+      const today = todayString();
+      if (!usage || usage.date !== today) {
+        resolve({ count: 0, date: today });
+      } else {
+        resolve(usage);
+      }
+    });
   });
 }
 
-// Refresh the Supabase session if the access token has expired.
-// Supabase access tokens are short-lived JWTs; the refresh token gets a new one.
-async function getValidAccessToken() {
-  const session = await getAuthSession();
-  if (!session || !session.access_token) return null;
-
-  // Check if token is expired (Supabase JWTs have exp claim)
-  try {
-    const payload = JSON.parse(atob(session.access_token.split('.')[1]));
-    const expiresAt = payload.exp * 1000; // Convert to ms
-    const now = Date.now();
-
-    // If token expires in more than 60 seconds, it's still valid
-    if (expiresAt - now > 60000) {
-      return session.access_token;
-    }
-
-    // Token expired or expiring soon — try to refresh
-    if (!session.refresh_token) return null;
-
-    const res = await fetch(`${WOFFLE_CONFIG.SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        apikey: WOFFLE_CONFIG.SUPABASE_ANON_KEY,
-      },
-      body: JSON.stringify({ refresh_token: session.refresh_token }),
-    });
-
-    if (!res.ok) {
-      console.error('[Woffle] Token refresh failed:', res.status);
-      await clearAuthSession();
-      return null;
-    }
-
-    const newSession = await res.json();
-    await setAuthSession({
-      access_token: newSession.access_token,
-      refresh_token: newSession.refresh_token,
-      user: newSession.user || session.user,
-    });
-    return newSession.access_token;
-  } catch (err) {
-    console.error('[Woffle] Token validation error:', err);
-    return null;
-  }
-}
-
-// Make an authenticated fetch to the Woffle backend.
-async function workerFetch(path, options = {}) {
-  const token = await getValidAccessToken();
-  if (!token) {
-    return { ok: false, error: 'NOT_LOGGED_IN' };
-  }
-
-  const url = `${WOFFLE_CONFIG.WORKER_URL}${path}`;
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-      ...(options.headers || {}),
-    },
-  });
-
-  const data = await res.json();
-  return { ok: res.ok, status: res.status, data };
-}
-
-// Make an authenticated fetch that returns the raw Response (for SSE streaming).
-async function workerFetchRaw(path, options = {}) {
-  const token = await getValidAccessToken();
-  if (!token) {
-    return null;
-  }
-
-  const url = `${WOFFLE_CONFIG.WORKER_URL}${path}`;
-  return fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-      ...(options.headers || {}),
-    },
+async function incrementDailyUsage() {
+  const current = await getDailyUsage();
+  const updated = { count: current.count + 1, date: current.date };
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ woffle_daily_usage: updated }, () => resolve(updated));
   });
 }
 
@@ -154,7 +225,7 @@ async function workerFetchRaw(path, options = {}) {
 // ============================================================
 // This code stays client-side because the extension has access to YouTube's
 // cookies and page context. We fetch the transcript here, chunk it, then
-// send the chunks to the backend for AI classification.
+// send the chunks directly to the Anthropic API for AI classification.
 
 const YT_INNERTUBE_API_KEY_CANDIDATES = [
   'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8'
@@ -340,7 +411,6 @@ async function fetchTranscript(videoId, captionUrl) {
 // Transcript chunking (stays client-side)
 // ============================================================
 // Chunks the raw timedtext events into segments suitable for AI classification.
-// The chunks are sent to the backend which forwards them to Claude.
 
 function chunkTranscript(timedTextData) {
   const events = timedTextData.events || [];
@@ -462,8 +532,6 @@ function chunkTranscript(timedTextData) {
 // ============================================================
 // Local cache (chrome.storage.local) — TTL + LRU eviction
 // ============================================================
-// Local cache is checked BEFORE hitting the backend shared cache.
-// This avoids a network request for videos the user has already seen.
 
 const LOCAL_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const LOCAL_CACHE_MAX_ENTRIES = 200;
@@ -517,12 +585,384 @@ async function evictLocalCache() {
 }
 
 // ============================================================
+// Time formatting utility
+// ============================================================
+
+function fmtTime(sec) {
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+// ============================================================
+// Direct Claude API calls — BYOK
+// ============================================================
+
+// Quick intro scan — Haiku analyses first 90s of transcript.
+// Returns { intro_ends_at, intro_type, topic_starts }.
+async function quickIntroScan(chunks, apiKey, videoTitle) {
+  const first90s = chunks.filter(c => c.start < 90);
+  if (first90s.length === 0) {
+    return { intro_ends_at: 0, intro_type: 'none', topic_starts: '' };
+  }
+
+  const chunkText = first90s
+    .map(c => `[${fmtTime(c.start)}] ${c.text}`)
+    .join('\n');
+
+  const titleLine = videoTitle ? `Video title: "${videoTitle}"\n\n` : '';
+  const userMessage = `${titleLine}First 90 seconds of transcript:\n${chunkText}`;
+
+  const response = await fetch(ANTHROPIC_API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': ANTHROPIC_VERSION,
+    },
+    body: JSON.stringify({
+      model: HAIKU_MODEL,
+      max_tokens: 256,
+      system: QUICK_INTRO_PROMPT,
+      messages: [{ role: 'user', content: userMessage }],
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Quick scan failed: ${response.status}: ${errText}`);
+  }
+
+  const data = await response.json();
+  const text = (data.content || [])
+    .filter(b => b.type === 'text' && typeof b.text === 'string')
+    .map(b => b.text)
+    .join('')
+    .trim();
+
+  if (!text) {
+    return { intro_ends_at: 0, intro_type: 'none', topic_starts: '' };
+  }
+
+  try {
+    const cleaned = text
+      .replace(/^```json\s*/i, '')
+      .replace(/^```\s*/i, '')
+      .replace(/\s*```$/, '')
+      .trim();
+    const parsed = JSON.parse(cleaned);
+    return {
+      intro_ends_at: Number(parsed.intro_ends_at) || 0,
+      intro_type: String(parsed.intro_type || 'none'),
+      topic_starts: String(parsed.topic_starts || ''),
+    };
+  } catch {
+    return { intro_ends_at: 0, intro_type: 'none', topic_starts: '' };
+  }
+}
+
+// Full analysis — Sonnet analyses full transcript with streaming.
+// Streams SSE-style events to the content script via sendToTab as segments
+// are parsed from the streaming response.
+async function fullAnalysis(chunks, apiKey, videoTitle, tabId, videoId) {
+  const chunkText = chunks
+    .map(c => `[${fmtTime(c.start)}] ${c.text}`)
+    .join('\n');
+
+  const titleLine = videoTitle ? `Video title: "${videoTitle}"\n` : '';
+  const userMessage = `${titleLine}\nFull transcript:\n${chunkText}`;
+
+  const response = await fetch(ANTHROPIC_API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': ANTHROPIC_VERSION,
+    },
+    body: JSON.stringify({
+      model: SONNET_MODEL,
+      max_tokens: 4096,
+      stream: true,
+      system: FULL_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: userMessage }],
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Full analysis failed: ${response.status}: ${errText}`);
+  }
+
+  // Read the Anthropic SSE stream and extract text deltas.
+  // Claude's streaming format sends content_block_delta events
+  // with delta.text containing the next chunk of generated text.
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let sseBuffer = '';
+  let fullText = '';
+  const allSegments = [];
+  let emittedSegments = 0;
+  let topicEmitted = false;
+  let streamError = null;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      sseBuffer += decoder.decode(value, { stream: true });
+
+      // Process complete SSE lines from the Anthropic stream
+      const lines = sseBuffer.split('\n');
+      sseBuffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const jsonStr = line.slice(6).trim();
+        if (jsonStr === '[DONE]') continue;
+
+        try {
+          const event = JSON.parse(jsonStr);
+          if (event.type === 'content_block_delta' && event.delta?.text) {
+            fullText += event.delta.text;
+
+            // Try to parse segments incrementally from accumulated text
+            const parseResult = parseIncremental(fullText, emittedSegments, topicEmitted);
+
+            // Emit topic as soon as we find it
+            if (parseResult.topic && !topicEmitted) {
+              topicEmitted = true;
+              console.log(`[Woffle] Topic: ${parseResult.topic}`);
+            }
+
+            // Emit any newly parsed segments to content script
+            for (let i = emittedSegments; i < parseResult.segments.length; i++) {
+              const seg = parseResult.segments[i];
+              allSegments.push(seg);
+              sendToTab(tabId, { type: 'WOFFLE_SEGMENT', segment: seg });
+              emittedSegments++;
+            }
+          }
+        } catch {
+          // Skip malformed JSON lines — normal during streaming
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[Woffle] Stream reading failed:', err);
+    streamError = err.message;
+  }
+
+  // Final parse to catch any remaining segments the incremental parser missed
+  const finalResult = parseFinal(fullText);
+  for (let i = emittedSegments; i < finalResult.segments.length; i++) {
+    const seg = finalResult.segments[i];
+    allSegments.push(seg);
+    sendToTab(tabId, { type: 'WOFFLE_SEGMENT', segment: seg });
+  }
+
+  // Merge adjacent segments before caching
+  const toMerge = finalResult.segments.length > allSegments.length
+    ? finalResult.segments
+    : allSegments;
+  const merged = mergeAdjacentSegments(toMerge);
+
+  if (streamError && merged.length === 0) {
+    sendToTab(tabId, { type: 'WOFFLE_ERROR', error: 'CLASSIFICATION_FAILED', detail: streamError });
+    return;
+  }
+
+  if (merged.length > 0) {
+    await setLocalCache(videoId, merged);
+    sendToTab(tabId, {
+      type: 'WOFFLE_COMPLETE',
+      fromCache: false,
+      totalSegments: merged.length,
+      partial: !!streamError,
+    });
+  } else {
+    sendToTab(tabId, { type: 'WOFFLE_ERROR', error: 'NO_SEGMENTS' });
+  }
+}
+
+// ============================================================
+// Incremental JSON Parser
+// ============================================================
+// Extracts segments from partially complete Claude output.
+// Tracks brace depth to detect complete {...} objects within
+// the segments array as they stream in.
+
+function parseIncremental(text, alreadyParsed, topicParsed) {
+  let topic = null;
+  const segments = [];
+
+  const cleaned = text
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/\s*```$/, '')
+    .trim();
+
+  // Extract video_topic
+  if (!topicParsed) {
+    const topicMatch = cleaned.match(/"video_topic"\s*:\s*"([^"]+)"/);
+    if (topicMatch) topic = topicMatch[1];
+  }
+
+  // Find the segments array
+  const segArrayMatch = cleaned.match(/"segments"\s*:\s*\[/);
+  if (!segArrayMatch) return { topic, segments };
+
+  const arrayStart = cleaned.indexOf('[', segArrayMatch.index);
+  if (arrayStart === -1) return { topic, segments };
+
+  // Extract complete segment objects by tracking brace depth
+  let depth = 0;
+  let objStart = -1;
+
+  for (let i = arrayStart + 1; i < cleaned.length; i++) {
+    const ch = cleaned[i];
+
+    // Skip string contents to avoid counting braces inside strings
+    if (ch === '"') {
+      i++;
+      while (i < cleaned.length && cleaned[i] !== '"') {
+        if (cleaned[i] === '\\') i++;
+        i++;
+      }
+      continue;
+    }
+
+    if (ch === '{') {
+      if (depth === 0) objStart = i;
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0 && objStart >= 0) {
+        const objStr = cleaned.substring(objStart, i + 1);
+        try {
+          const obj = JSON.parse(objStr);
+          segments.push({
+            start: Number(obj.start) || 0,
+            end: Number(obj.end) || 0,
+            woffle_confidence: Math.min(100, Math.max(0, Number(obj.woffle_confidence) || 0)),
+            category: String(obj.category || 'substance'),
+            label: String(obj.label || ''),
+          });
+        } catch {
+          // Incomplete or malformed — skip
+        }
+        objStart = -1;
+      }
+    }
+  }
+
+  return { topic, segments };
+}
+
+// ============================================================
+// Final JSON Parser
+// ============================================================
+// Extracts all segments from the complete response.
+
+function parseFinal(text) {
+  const cleaned = text
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/\s*```$/, '')
+    .trim();
+
+  let topic = '';
+
+  // Try to parse as a single JSON object first (ideal case)
+  try {
+    const parsed = JSON.parse(cleaned);
+    if (parsed.video_topic) topic = parsed.video_topic;
+    if (Array.isArray(parsed.segments)) {
+      return {
+        topic,
+        segments: parsed.segments.map(item => ({
+          start: Number(item.start) || 0,
+          end: Number(item.end) || 0,
+          woffle_confidence: Math.min(100, Math.max(0, Number(item.woffle_confidence) || 0)),
+          category: String(item.category || 'substance'),
+          label: String(item.label || ''),
+        })),
+      };
+    }
+  } catch {
+    // Fall through to regex extraction
+  }
+
+  // Extract topic via regex
+  const topicMatch = cleaned.match(/"video_topic"\s*:\s*"([^"]+)"/);
+  if (topicMatch) topic = topicMatch[1];
+
+  // Extract segments array via regex
+  const arrayMatch = cleaned.match(/\[[\s\S]*\]/);
+  if (!arrayMatch) return { topic, segments: [] };
+
+  try {
+    const parsed = JSON.parse(arrayMatch[0]);
+    return {
+      topic,
+      segments: parsed
+        .filter(item => typeof item === 'object' && item !== null)
+        .map(item => ({
+          start: Number(item.start) || 0,
+          end: Number(item.end) || 0,
+          woffle_confidence: Math.min(100, Math.max(0, Number(item.woffle_confidence) || 0)),
+          category: String(item.category || 'substance'),
+          label: String(item.label || ''),
+        })),
+    };
+  } catch {
+    return { topic, segments: [] };
+  }
+}
+
+// ============================================================
+// Segment Merging
+// ============================================================
+// Merge adjacent segments with the same category and close confidence
+// scores. Keeps the segment list compact without losing resolution.
+
+function mergeAdjacentSegments(segments) {
+  if (segments.length === 0) return [];
+
+  const sorted = [...segments].sort((a, b) => a.start - b.start);
+  const merged = [{ ...sorted[0] }];
+
+  for (let i = 1; i < sorted.length; i++) {
+    const curr = sorted[i];
+    const prev = merged[merged.length - 1];
+    const gap = curr.start - prev.end;
+    const sameCat = curr.category === prev.category;
+    const closeConf = Math.abs(curr.woffle_confidence - prev.woffle_confidence) <= 15;
+
+    if (sameCat && closeConf && gap <= 2) {
+      // Merge: extend end, average confidence, keep longer label
+      prev.end = Math.max(prev.end, curr.end);
+      prev.woffle_confidence = Math.round(
+        (prev.woffle_confidence + curr.woffle_confidence) / 2
+      );
+      if (curr.label.length > prev.label.length) {
+        prev.label = curr.label;
+      }
+    } else {
+      merged.push({ ...curr });
+    }
+  }
+
+  return merged;
+}
+
+// ============================================================
 // Message handler — main entry point from content script + popup
 // ============================================================
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'ANALYZE_VIDEO') {
-    // New two-pass architecture: return immediately, send results via tabs.sendMessage
+    // Two-pass architecture: return immediately, send results via tabs.sendMessage
     const tabId = sender.tab?.id;
     if (!tabId) {
       sendResponse({ error: 'NO_TAB_ID' });
@@ -534,130 +974,46 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message.type === 'GET_USER_STATE') {
-    // Fetch the user's tier, credits, and channels from the backend
-    handleGetUserState()
-      .then(result => sendResponse(result))
+  // API key check — popup uses this to show "API KEY NEEDED" warning
+  if (message.type === 'CHECK_API_KEY') {
+    getApiKey().then(key => sendResponse({ hasKey: !!key }));
+    return true;
+  }
+
+  // Usage state — popup uses this to show the daily counter or licensed badge
+  if (message.type === 'GET_USAGE_STATE') {
+    Promise.all([getDailyUsage(), hasValidLicense()])
+      .then(([usage, licensed]) => sendResponse({
+        licensed,
+        dailyCount: usage.count,
+        dailyLimit: FREE_DAILY_LIMIT,
+        atLimit: !licensed && usage.count >= FREE_DAILY_LIMIT,
+      }))
       .catch(err => sendResponse({ error: err.message }));
     return true;
   }
 
-  if (message.type === 'LOGIN') {
-    handleLogin(message.email, message.password)
-      .then(result => sendResponse(result))
-      .catch(err => sendResponse({ error: err.message }));
+  // License key activation — options page validates and stores a key
+  if (message.type === 'VALIDATE_LICENSE_KEY') {
+    const { valid, key } = validateLicenseFormat(message.key);
+    if (valid) {
+      chrome.storage.sync.set({
+        woffleLicenseRecord: { key, valid: true, validatedAt: Date.now() }
+      }, () => sendResponse({ valid: true, key }));
+    } else {
+      sendResponse({ valid: false });
+    }
     return true;
   }
 
-  if (message.type === 'SIGNUP') {
-    handleSignup(message.email, message.password)
-      .then(result => sendResponse(result))
-      .catch(err => sendResponse({ error: err.message }));
-    return true;
-  }
-
-  if (message.type === 'LOGOUT') {
-    clearAuthSession().then(() => sendResponse({ ok: true }));
-    return true;
-  }
-
-  if (message.type === 'GET_CHECKOUT_URL') {
-    handleGetCheckoutUrl(message.tier, message.topup)
-      .then(result => sendResponse(result))
-      .catch(err => sendResponse({ error: err.message }));
-    return true;
-  }
-
-  if (message.type === 'GET_PORTAL_URL') {
-    workerFetch('/api/stripe/portal')
-      .then(result => sendResponse(result.ok ? result.data : { error: result.error || 'PORTAL_FAILED' }))
-      .catch(err => sendResponse({ error: err.message }));
+  // License key removal
+  if (message.type === 'REMOVE_LICENSE_KEY') {
+    chrome.storage.sync.remove('woffleLicenseRecord', () => sendResponse({ ok: true }));
     return true;
   }
 
   return false;
 });
-
-// ============================================================
-// Auth: login + signup via Supabase
-// ============================================================
-
-async function handleLogin(email, password) {
-  const res = await fetch(`${WOFFLE_CONFIG.SUPABASE_URL}/auth/v1/token?grant_type=password`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      apikey: WOFFLE_CONFIG.SUPABASE_ANON_KEY,
-    },
-    body: JSON.stringify({ email, password }),
-  });
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    return { error: err.error_description || err.msg || 'LOGIN_FAILED' };
-  }
-
-  const data = await res.json();
-  await setAuthSession({
-    access_token: data.access_token,
-    refresh_token: data.refresh_token,
-    user: data.user,
-  });
-  return { ok: true, user: data.user };
-}
-
-async function handleSignup(email, password) {
-  const res = await fetch(`${WOFFLE_CONFIG.SUPABASE_URL}/auth/v1/signup`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      apikey: WOFFLE_CONFIG.SUPABASE_ANON_KEY,
-    },
-    body: JSON.stringify({ email, password }),
-  });
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    return { error: err.error_description || err.msg || 'SIGNUP_FAILED' };
-  }
-
-  const data = await res.json();
-  // If email confirmation is required, user won't have a session yet
-  if (data.access_token) {
-    await setAuthSession({
-      access_token: data.access_token,
-      refresh_token: data.refresh_token,
-      user: data.user,
-    });
-    return { ok: true, user: data.user, confirmed: true };
-  }
-  return { ok: true, user: data.user, confirmed: false };
-}
-
-// ============================================================
-// GET /api/me — user state (tier, credits, channels)
-// ============================================================
-
-async function handleGetUserState() {
-  const result = await workerFetch('/api/me');
-  if (!result.ok) {
-    return { error: result.error || result.data?.error || 'FETCH_FAILED' };
-  }
-  return result.data;
-}
-
-// ============================================================
-// GET /api/stripe/checkout — get checkout URL
-// ============================================================
-
-async function handleGetCheckoutUrl(tier, topup) {
-  const params = topup ? '?topup=true' : `?tier=${tier}`;
-  const result = await workerFetch(`/api/stripe/checkout${params}`);
-  if (!result.ok) {
-    return { error: result.data?.error || 'CHECKOUT_FAILED' };
-  }
-  return result.data;
-}
 
 // ============================================================
 // Two-Pass Streaming Analysis Pipeline
@@ -678,11 +1034,10 @@ async function handleAnalyzeVideoStreaming(videoId, captionUrl, transcriptData, 
     return;
   }
 
-  // 1. Local cache
+  // 1. Local cache check
   const localCached = await getLocalCache(videoId);
   if (localCached) {
     console.log(`[Woffle] Local cache hit for ${videoId}`);
-    // Send all segments at once (cached = instant)
     for (const seg of localCached) {
       sendToTab(tabId, { type: 'WOFFLE_SEGMENT', segment: seg });
     }
@@ -690,30 +1045,25 @@ async function handleAnalyzeVideoStreaming(videoId, captionUrl, transcriptData, 
     return;
   }
 
-  // Check auth
-  const token = await getValidAccessToken();
-  if (!token) {
-    sendToTab(tabId, { type: 'WOFFLE_ERROR', error: 'NOT_LOGGED_IN' });
+  // 2. Daily limit check — cache hits (above) are free, fresh API calls are gated
+  const licensed = await hasValidLicense();
+  if (!licensed) {
+    const usage = await getDailyUsage();
+    if (usage.count >= FREE_DAILY_LIMIT) {
+      console.log(`[Woffle] Daily limit reached (${usage.count}/${FREE_DAILY_LIMIT})`);
+      sendToTab(tabId, { type: 'WOFFLE_ERROR', error: 'DAILY_LIMIT_REACHED' });
+      return;
+    }
+  }
+
+  // 3. Check API key
+  const apiKey = await getApiKey();
+  if (!apiKey) {
+    sendToTab(tabId, { type: 'WOFFLE_ERROR', error: 'NO_API_KEY' });
     return;
   }
 
-  // 2. Backend shared cache check
-  try {
-    const cacheResult = await workerFetch(`/api/analyse/${encodeURIComponent(videoId)}`);
-    if (cacheResult.ok && cacheResult.data.segments) {
-      console.log(`[Woffle] Backend cache hit for ${videoId}`);
-      await setLocalCache(videoId, cacheResult.data.segments);
-      for (const seg of cacheResult.data.segments) {
-        sendToTab(tabId, { type: 'WOFFLE_SEGMENT', segment: seg });
-      }
-      sendToTab(tabId, { type: 'WOFFLE_COMPLETE', fromCache: true, totalSegments: cacheResult.data.segments.length });
-      return;
-    }
-  } catch (err) {
-    console.warn('[Woffle] Backend cache check failed:', err.message);
-  }
-
-  // 3. Cache miss — fetch transcript and classify
+  // 4. Fetch transcript if not provided
   let timedTextData;
   if (transcriptData && transcriptData.events && transcriptData.events.length > 0) {
     console.log(`[Woffle] Using pre-fetched transcript: ${transcriptData.events.length} events`);
@@ -727,188 +1077,53 @@ async function handleAnalyzeVideoStreaming(videoId, captionUrl, transcriptData, 
     }
   }
 
-  // Chunk the transcript
+  // 5. Chunk the transcript
   const chunks = chunkTranscript(timedTextData);
   if (chunks.length === 0) {
     sendToTab(tabId, { type: 'WOFFLE_ERROR', error: 'NO_CAPTIONS' });
     return;
   }
 
-  // 4. Fire BOTH requests simultaneously
+  // 6. Increment daily usage counter now that we're committed to making an API call.
+  //    Counted before the call so that failed calls still use up a daily slot
+  //    (prevents abuse via rapid retry of deliberately bad transcripts).
+  //    Licensed users skip the increment — no limit applies to them.
+  if (!licensed) {
+    await incrementDailyUsage();
+  }
+
+  // 7. Fire BOTH requests simultaneously
   //    - Quick scan (Haiku): first 90s → instant intro skip
   //    - Full scan (Sonnet): entire transcript → streaming segments
   console.log(`[Woffle] Starting two-pass analysis for ${videoId}`);
 
   // Quick scan — fire and forget, forward result as soon as it arrives
-  const quickPromise = workerFetch('/api/analyse', {
-    method: 'POST',
-    body: JSON.stringify({
-      mode: 'quick',
-      video_id: videoId,
-      transcript_chunks: chunks,
-      video_title: videoTitle || undefined,
-    }),
-  }).then(result => {
-    if (result.ok && result.data && result.data.intro_ends_at > 0) {
-      console.log(`[Woffle] Quick scan: intro ends at ${result.data.intro_ends_at}s`);
-      sendToTab(tabId, {
-        type: 'WOFFLE_QUICK_RESULT',
-        introEndsAt: result.data.intro_ends_at,
-        introType: result.data.intro_type,
-        topicStarts: result.data.topic_starts,
-      });
-    }
-  }).catch(err => {
-    // Quick scan failure is non-critical — full scan will handle everything
-    console.warn('[Woffle] Quick scan failed (non-critical):', err.message);
-  });
-
-  // Full scan — stream SSE response and forward each segment
-  const fullPromise = (async () => {
-    try {
-      const response = await workerFetchRaw('/api/analyse', {
-        method: 'POST',
-        body: JSON.stringify({
-          mode: 'full',
-          video_id: videoId,
-          transcript_chunks: chunks,
-          video_title: videoTitle || undefined,
-        }),
-      });
-
-      if (!response) {
-        sendToTab(tabId, { type: 'WOFFLE_ERROR', error: 'NOT_LOGGED_IN' });
-        return;
+  const quickPromise = quickIntroScan(chunks, apiKey, videoTitle)
+    .then(result => {
+      if (result.intro_ends_at > 0) {
+        console.log(`[Woffle] Quick scan: intro ends at ${result.intro_ends_at}s`);
+        sendToTab(tabId, {
+          type: 'WOFFLE_QUICK_RESULT',
+          introEndsAt: result.intro_ends_at,
+          introType: result.intro_type,
+          topicStarts: result.topic_starts,
+        });
       }
+    })
+    .catch(err => {
+      // Quick scan failure is non-critical — full scan will handle everything
+      console.warn('[Woffle] Quick scan failed (non-critical):', err.message);
+    });
 
-      // Check if the response is SSE (streaming) or JSON (cache hit / fallback)
-      const contentType = response.headers.get('Content-Type') || '';
-
-      if (contentType.includes('text/event-stream')) {
-        // Streaming response — parse SSE events
-        await consumeSSEStream(response, tabId, videoId);
-      } else {
-        // JSON response (cache hit or non-streaming fallback)
-        const data = await response.json();
-
-        if (!response.ok) {
-          const errCode = data?.error || 'CLASSIFICATION_FAILED';
-          console.error('[Woffle] Backend analysis failed:', errCode, data?.detail || '');
-          sendToTab(tabId, { type: 'WOFFLE_ERROR', error: errCode, detail: data?.detail });
-          return;
-        }
-
-        if (data.segments) {
-          await setLocalCache(videoId, data.segments);
-          for (const seg of data.segments) {
-            sendToTab(tabId, { type: 'WOFFLE_SEGMENT', segment: seg });
-          }
-          sendToTab(tabId, { type: 'WOFFLE_COMPLETE', fromCache: data.from_cache || false, totalSegments: data.segments.length });
-        }
-      }
-    } catch (err) {
+  // Full scan — stream response and forward each segment to content script
+  const fullPromise = fullAnalysis(chunks, apiKey, videoTitle, tabId, videoId)
+    .catch(err => {
       console.error('[Woffle] Full scan failed:', err);
       sendToTab(tabId, { type: 'WOFFLE_ERROR', error: 'CLASSIFICATION_FAILED', detail: err.message });
-    }
-  })();
+    });
 
   // Wait for both (quick result doesn't block full scan)
   await Promise.allSettled([quickPromise, fullPromise]);
-}
-
-// ============================================================
-// SSE Stream Consumer
-// ============================================================
-// Reads the Server-Sent Events stream from the worker's full analysis
-// response and forwards each segment to the content script.
-
-async function consumeSSEStream(response, tabId, videoId) {
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  const allSegments = [];
-  let streamError = null;
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-
-      // Process complete SSE events (double newline separated)
-      const events = buffer.split('\n\n');
-      buffer = events.pop() || ''; // Keep incomplete last event
-
-      for (const eventBlock of events) {
-        if (!eventBlock.trim()) continue;
-
-        const lines = eventBlock.split('\n');
-        let eventType = '';
-        let eventData = '';
-
-        for (const line of lines) {
-          if (line.startsWith('event: ')) {
-            eventType = line.slice(7).trim();
-          } else if (line.startsWith('data: ')) {
-            eventData = line.slice(6).trim();
-          }
-        }
-
-        if (!eventData) continue;
-
-        try {
-          const data = JSON.parse(eventData);
-
-          switch (eventType) {
-            case 'topic':
-              // Video topic identified — could display in UI later
-              console.log(`[Woffle] Topic: ${data.video_topic}`);
-              break;
-
-            case 'segment':
-              allSegments.push(data);
-              sendToTab(tabId, { type: 'WOFFLE_SEGMENT', segment: data });
-              break;
-
-            case 'done':
-              console.log(`[Woffle] Stream complete: ${data.total_segments} segments`);
-              break;
-
-            case 'error':
-              streamError = data.error;
-              console.error('[Woffle] Stream error:', data.error);
-              break;
-          }
-        } catch {
-          // Skip malformed event data
-        }
-      }
-    }
-  } catch (err) {
-    console.error('[Woffle] SSE stream reading failed:', err);
-    streamError = err.message;
-  }
-
-  if (streamError && allSegments.length === 0) {
-    // Stream failed with no segments — report error
-    sendToTab(tabId, { type: 'WOFFLE_ERROR', error: 'CLASSIFICATION_FAILED', detail: streamError });
-    return;
-  }
-
-  // Even if the stream errored mid-way, use whatever segments we got
-  // (partial analysis > no analysis)
-  if (allSegments.length > 0) {
-    await setLocalCache(videoId, allSegments);
-    sendToTab(tabId, {
-      type: 'WOFFLE_COMPLETE',
-      fromCache: false,
-      totalSegments: allSegments.length,
-      partial: !!streamError,
-    });
-  } else {
-    sendToTab(tabId, { type: 'WOFFLE_ERROR', error: 'NO_SEGMENTS' });
-  }
 }
 
 // ============================================================

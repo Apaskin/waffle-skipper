@@ -3,3 +3,7 @@ node_modules/
 *.pem
 .DS_Store
 Thumbs.db
+
+# Backend directories — preserved locally but not part of the extension
+worker/
+supabase/

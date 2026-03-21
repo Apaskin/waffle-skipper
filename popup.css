@@ -657,105 +657,110 @@ body {
 }
 
 /* ============================================================
-   Credits section — tier badge + credit counter + upgrade CTA
+   Usage indicator panel
    ============================================================ */
-#credits-section {
-  border-color: rgba(226, 183, 20, 0.15);
+.usage-panel {
+  padding: 10px 14px;
+  gap: 6px;
 }
 
-.credits-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.tier-badge {
-  padding: 3px 8px;
-  border-radius: 4px;
-  font-size: 6px;
-  letter-spacing: 1px;
-  font-family: 'Press Start 2P', monospace;
-  background: rgba(90, 105, 136, 0.2);
-  color: var(--dim);
-  border: 1px solid rgba(90, 105, 136, 0.3);
-}
-
-.tier-badge.plus {
-  background: rgba(0, 212, 255, 0.1);
-  color: var(--cyan);
-  border-color: rgba(0, 212, 255, 0.3);
-}
-
-.tier-badge.pro {
-  background: rgba(226, 183, 20, 0.1);
-  color: var(--gold);
-  border-color: rgba(226, 183, 20, 0.3);
-}
-
-.credits-text {
+/* Free tier counter */
+.usage-free-label {
   font-family: 'VT323', monospace;
-  font-size: 14px;
+  font-size: 16px;
   color: var(--dim);
+  letter-spacing: 0.5px;
 }
 
-.credits-bar-track {
-  height: 6px;
+.usage-bar-track {
+  height: 5px;
   border-radius: 3px;
   background: rgba(10, 14, 30, 0.8);
   border: 1px solid var(--line);
   overflow: hidden;
+  margin-top: 4px;
 }
 
-.credits-bar-fill {
+.usage-bar-fill {
   height: 100%;
   border-radius: 2px;
   background: linear-gradient(90deg, var(--green), var(--cyan));
   transition: width 0.3s ease;
 }
 
-.credits-bar-fill.low {
+.usage-bar-fill.almost-full {
   background: linear-gradient(90deg, var(--orange), var(--red));
 }
 
-.credits-actions {
+/* Daily limit reached */
+.usage-limit {
+  text-align: center;
   display: flex;
-  gap: 6px;
+  flex-direction: column;
+  gap: 5px;
 }
 
-.btn-upgrade,
-.btn-topup {
-  flex: 1;
-  padding: 5px 6px;
-  border-radius: 5px;
+.usage-limit-label {
+  font-size: 8px;
+  color: var(--orange);
+  text-shadow: 0 0 8px rgba(255, 107, 53, 0.4);
+  letter-spacing: 1px;
+}
+
+.usage-limit-sub {
+  font-family: 'VT323', monospace;
+  font-size: 14px;
+  color: var(--dim);
+}
+
+.btn-upgrade-pro {
+  margin-top: 2px;
+  padding: 7px 12px;
   font-family: 'Press Start 2P', monospace;
-  font-size: 5px;
+  font-size: 7px;
   letter-spacing: 0.5px;
+  color: var(--gold);
+  background: rgba(226, 183, 20, 0.1);
+  border: 1.5px solid var(--gold);
+  border-radius: 5px;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
-.btn-upgrade {
-  background: rgba(226, 183, 20, 0.1);
-  border: 1.5px solid var(--gold);
-  color: var(--gold);
-}
-
-.btn-upgrade:hover {
+.btn-upgrade-pro:hover {
   background: rgba(226, 183, 20, 0.2);
-  box-shadow: 0 0 10px var(--gold-glow);
+  box-shadow: 0 0 12px var(--gold-glow);
   transform: translateY(-1px);
 }
 
-.btn-topup {
-  background: rgba(0, 212, 255, 0.08);
-  border: 1.5px solid rgba(0, 212, 255, 0.4);
-  color: var(--cyan);
+/* Licensed / Pro state */
+.usage-licensed {
+  font-size: 8px;
+  color: var(--gold);
+  text-shadow: 0 0 10px rgba(226, 183, 20, 0.5), 0 0 22px rgba(226, 183, 20, 0.2);
+  letter-spacing: 1px;
+  text-align: center;
 }
 
-.btn-topup:hover {
-  background: rgba(0, 212, 255, 0.15);
-  box-shadow: 0 0 10px var(--cyan-glow);
-  transform: translateY(-1px);
+/* ============================================================
+   API key warning section
+   ============================================================ */
+.api-key-warning {
+  border-color: rgba(255, 107, 53, 0.3);
+  text-align: center;
+}
+
+.api-key-message {
+  font-size: 8px;
+  color: var(--orange);
+  text-shadow: 0 0 8px rgba(255, 107, 53, 0.4);
+  letter-spacing: 1px;
+  margin-bottom: 4px;
+}
+
+.api-key-warning .btn-gold {
+  font-size: 7px;
+  padding: 8px 14px;
 }
 
 /* ============================================================

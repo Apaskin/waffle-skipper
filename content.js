@@ -930,14 +930,23 @@
       'NO_ENGLISH_CAPTIONS': 'ENGLISH CAPTIONS NOT FOUND',
       'NO_API_KEY': 'API KEY NOT SET - OPEN SETTINGS',
       'INVALID_API_KEY': 'API KEY INVALID - CHECK SETTINGS',
-      'NO_CREDITS': 'NO API CREDITS - CHECK BILLING',
-      'no_credits': 'OUT OF CREDITS',
-      'NOT_LOGGED_IN': 'SIGN IN FIRST - OPEN SETTINGS',
+      'DAILY_LIMIT_REACHED': 'DAILY LIMIT — 3 FREE SCANS USED',
       'RATE_LIMIT': 'RATE LIMITED - TRY AGAIN SOON',
       'MODEL_UNAVAILABLE': 'MODEL NOT AVAILABLE - CHECK ACCESS',
       'CLASSIFICATION_FAILED': 'ANALYSIS FAILED - CLICK TO RETRY',
       'UNKNOWN_ERROR': 'SOMETHING WENT WRONG',
     };
+
+    // DAILY_LIMIT_REACHED is expected behaviour, not a failure state —
+    // render it with a softer appearance and an upgrade link.
+    if (errorCode === 'DAILY_LIMIT_REACHED') {
+      errorEl.classList.add('waffle-limit-reached');
+      errorEl.innerHTML =
+        `<span class="waffle-error-text">🧇 DAILY LIMIT — 3 FREE SCANS USED</span>` +
+        `<a class="waffle-upgrade-link" href="https://woffle.app" target="_blank">UPGRADE ↗</a>`;
+      injectTimeline(errorEl);
+      return;
+    }
 
     const msg = messages[errorCode] || messages['UNKNOWN_ERROR'];
     errorEl.innerHTML = `<span class="waffle-error-text">🧇 ${msg}</span>`;

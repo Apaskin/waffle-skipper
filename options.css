@@ -323,32 +323,47 @@ body {
 }
 
 /* ============================================================
-   Account info (logged-in state)
+   Help section + cost details (API key page)
    ============================================================ */
-.account-info {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+.help-section {
+  margin-top: 4px;
 }
 
-.account-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 12px;
-  padding: 4px 0;
-}
-
-.account-label {
-  font-size: 7px;
-  color: #5a6988;
-  letter-spacing: 1px;
-}
-
-.account-value {
-  font-family: 'VT323', monospace;
-  font-size: 18px;
+.help-link {
   color: #00d4ff;
+  text-decoration: none;
+  text-shadow: 0 0 6px rgba(0, 212, 255, 0.4);
+}
+
+.help-link:hover {
+  text-decoration: underline;
+}
+
+.cost-details {
+  margin-top: 8px;
+}
+
+.cost-summary {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  color: #00d4ff;
+  cursor: pointer;
+  letter-spacing: 0.5px;
+}
+
+.cost-summary:hover {
+  text-shadow: 0 0 6px rgba(0, 212, 255, 0.4);
+}
+
+.cost-body {
+  font-family: 'VT323', monospace;
+  font-size: 16px;
+  line-height: 1.6;
+  color: #8ea4d8;
+  margin-top: 6px;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
 }
 
 /* ============================================================

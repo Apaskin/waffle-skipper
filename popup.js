@@ -1,7 +1,6 @@
 // popup.js — Woffle popup script.
 // Queries content script for video status, manages auto-skip toggle
-// and intensity selector, shows credit counter + tier badge,
-// and handles upgrade/top-up CTAs.
+// and intensity selector, shows stats, and checks for API key.
 
 document.addEventListener('DOMContentLoaded', async () => {
 
@@ -12,6 +11,70 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-settings').addEventListener('click', () => {
     chrome.runtime.openOptionsPage();
   });
+
+  // ============================================================
+  // API key check — show warning if no key is set
+  // ============================================================
+
+  const apiKeySection = document.getElementById('api-key-section');
+  const btnSetApiKey = document.getElementById('btn-set-api-key');
+
+  try {
+    const result = await chrome.runtime.sendMessage({ type: 'CHECK_API_KEY' });
+    if (!result || !result.hasKey) {
+      apiKeySection.style.display = '';
+    }
+  } catch (err) {
+    // If background script isn't ready, show the warning
+    apiKeySection.style.display = '';
+  }
+
+  btnSetApiKey.addEventListener('click', () => {
+    chrome.runtime.openOptionsPage();
+  });
+
+  // ============================================================
+  // Usage indicator — daily counter, limit reached, or licensed
+  // ============================================================
+
+  const usageSection   = document.getElementById('usage-section');
+  const usageFreeEl    = document.getElementById('usage-free');
+  const usageLimitEl   = document.getElementById('usage-limit');
+  const usageLicensed  = document.getElementById('usage-licensed');
+  const usageCountEl   = document.getElementById('usage-count');
+  const usageBarFill   = document.getElementById('usage-bar-fill');
+  const btnUpgradePro  = document.getElementById('btn-upgrade-pro');
+
+  btnUpgradePro.addEventListener('click', () => {
+    chrome.tabs.create({ url: 'https://woffle.app' });
+  });
+
+  try {
+    const usage = await chrome.runtime.sendMessage({ type: 'GET_USAGE_STATE' });
+
+    if (usage && !usage.error) {
+      usageSection.style.display = '';
+
+      if (usage.licensed) {
+        // Pro user — show gold badge
+        usageLicensed.style.display = '';
+      } else if (usage.atLimit) {
+        // At daily limit — show upgrade prompt
+        usageLimitEl.style.display = '';
+      } else {
+        // Free tier with scans remaining — show counter + bar
+        const count = usage.dailyCount || 0;
+        const limit = usage.dailyLimit || 3;
+        usageCountEl.textContent = count;
+        const pct = Math.round((count / limit) * 100);
+        usageBarFill.style.width = `${pct}%`;
+        if (count >= limit - 1) usageBarFill.classList.add('almost-full');
+        usageFreeEl.style.display = '';
+      }
+    }
+  } catch (err) {
+    console.log('[Woffle] Could not fetch usage state:', err.message);
+  }
 
   // ============================================================
   // Auto-skip toggle — single boolean, stored in chrome.storage.sync
@@ -140,77 +203,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // ============================================================
-  // Credits + Tier — fetch from backend via background script
-  // ============================================================
-
-  const tierBadge = document.getElementById('tier-badge');
-  const creditsText = document.getElementById('credits-text');
-  const creditsBarFill = document.getElementById('credits-bar-fill');
-  const btnUpgrade = document.getElementById('btn-upgrade');
-  const btnTopup = document.getElementById('btn-topup');
-
-  try {
-    const userState = await chrome.runtime.sendMessage({ type: 'GET_USER_STATE' });
-
-    if (userState && !userState.error) {
-      // Tier badge
-      const tier = (userState.tier || 'free').toLowerCase();
-      const tierLabels = { free: 'FREE', plus: 'PLUS ⚡', pro: 'PRO 🔥' };
-      tierBadge.textContent = tierLabels[tier] || 'FREE';
-      tierBadge.className = `tier-badge ${tier}`;
-
-      // Credit counter
-      const remaining = userState.credits_remaining ?? 0;
-      const limit = userState.credits_monthly_limit ?? 10;
-      creditsText.textContent = `${remaining} of ${limit} scans remaining`;
-
-      // Credit bar fill
-      const pct = limit > 0 ? Math.round((remaining / limit) * 100) : 0;
-      creditsBarFill.style.width = `${pct}%`;
-      if (pct < 20) creditsBarFill.classList.add('low');
-
-      // Hide upgrade button if already on Pro
-      if (tier === 'pro') btnUpgrade.style.display = 'none';
-    } else {
-      // Not logged in or fetch failed
-      creditsText.textContent = 'Sign in to start';
-      creditsBarFill.style.width = '0%';
-    }
-  } catch (err) {
-    console.log('[Woffle] Could not fetch user state:', err.message);
-    creditsText.textContent = 'Sign in to start';
-    creditsBarFill.style.width = '0%';
-  }
-
-  // Upgrade button — opens Stripe checkout for Plus (default)
-  btnUpgrade.addEventListener('click', async () => {
-    try {
-      const result = await chrome.runtime.sendMessage({ type: 'GET_CHECKOUT_URL', tier: 'plus' });
-      if (result && result.url) {
-        chrome.tabs.create({ url: result.url });
-      } else {
-        console.error('[Woffle] No checkout URL returned:', result);
-      }
-    } catch (err) {
-      console.error('[Woffle] Upgrade failed:', err);
-    }
-  });
-
-  // Top-up button — opens Stripe checkout for one-time credit purchase
-  btnTopup.addEventListener('click', async () => {
-    try {
-      const result = await chrome.runtime.sendMessage({ type: 'GET_CHECKOUT_URL', topup: true });
-      if (result && result.url) {
-        chrome.tabs.create({ url: result.url });
-      } else {
-        console.error('[Woffle] No checkout URL returned:', result);
-      }
-    } catch (err) {
-      console.error('[Woffle] Top-up failed:', err);
-    }
-  });
-
-  // ============================================================
   // Video status + stats — query the active YouTube tab
   // ============================================================
 
@@ -240,14 +232,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       const errorMessages = {
         NO_CAPTIONS:           'NO CAPTIONS AVAILABLE',
         NO_ENGLISH_CAPTIONS:   'ENGLISH CAPTIONS NOT FOUND',
-        NOT_LOGGED_IN:         'GAME OVER — SIGN IN FIRST',
-        no_credits:            'OUT OF CREDITS',
+        NO_API_KEY:            'GAME OVER — SET API KEY FIRST',
+        DAILY_LIMIT_REACHED:   'DAILY LIMIT — UPGRADE FOR MORE',
         RATE_LIMIT:            'RATE LIMITED — TRY AGAIN SOON',
         CLASSIFICATION_FAILED: 'ANALYSIS FAILED — RETRY?',
         UNKNOWN_ERROR:         'SOMETHING WENT WRONG',
       };
       statusEl.textContent = errorMessages[status.error] || 'ERROR';
-      statusEl.className = (status.error === 'NOT_LOGGED_IN' || status.error === 'no_credits')
+      statusEl.className = status.error === 'NO_API_KEY'
         ? 'analysis-status game-over'
         : 'analysis-status error';
     } else if (status.segmentCount > 0) {
