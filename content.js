@@ -50,6 +50,14 @@
   let scanButtonEl = null;
   let tooltipEl = null;
 
+  // Transcript follower panel — shows the full transcript synced to playback
+  // with waffle segments colour-coded orange + strikethrough.
+  let transcriptPanelOpen = false;   // persisted in chrome.storage.sync
+  let transcriptPanelEl = null;      // outer container
+  let transcriptToggleEl = null;     // 📜 TRANSCRIPT button
+  let transcriptLines = [];           // [{start, end, text}] — from raw events or segments
+  let lastActiveTranscriptIdx = -1;  // tracks which line is highlighted (avoid redundant DOM work)
+
   // Reference to video timeupdate listener (for cleanup)
   let timeupdateHandler = null;
   let keydownHandler = null;
@@ -65,7 +73,7 @@
   console.log('[Waffle Skipper] Content script loaded');
 
   // Load persisted preferences on startup
-  chrome.storage.sync.get(['autoSkipEnabled', 'woffleIntensity', 'timelineAlwaysVisible'], (result) => {
+  chrome.storage.sync.get(['autoSkipEnabled', 'woffleIntensity', 'timelineAlwaysVisible', 'transcriptPanelOpen'], (result) => {
     autoSkipEnabled = result.autoSkipEnabled !== false;
     if (result.woffleIntensity) {
       currentIntensity = result.woffleIntensity;
@@ -75,6 +83,8 @@
     if (result.timelineAlwaysVisible !== undefined) {
       timelineAlwaysVisible = result.timelineAlwaysVisible !== false;
     }
+    // Transcript panel defaults to closed
+    transcriptPanelOpen = result.transcriptPanelOpen === true;
   });
 
   // Listen for live preference changes from the popup (take effect immediately)
@@ -90,6 +100,15 @@
       timelineAlwaysVisible = changes.timelineAlwaysVisible.newValue !== false;
       // Re-inject timeline in correct location if currently showing
       if (segments.length > 0) renderTimeline();
+    }
+    if ('transcriptPanelOpen' in changes) {
+      transcriptPanelOpen = changes.transcriptPanelOpen.newValue === true;
+      if (transcriptPanelEl) {
+        transcriptPanelEl.classList.toggle('collapsed', !transcriptPanelOpen);
+      }
+      if (transcriptToggleEl) {
+        transcriptToggleEl.classList.toggle('active', transcriptPanelOpen);
+      }
     }
   });
 
@@ -231,6 +250,7 @@
     setTimeout(() => {
       if (videoId === currentVideoId) {
         injectScanButton();
+        injectTranscriptToggle();
         // The user clicks the SCAN button to trigger analysis (manual trigger).
         // Smart auto-analyse (if enabled) happens separately based on watch time.
       }
@@ -333,6 +353,10 @@
       renderTimeline();
       updateScanButtonState();
       enableAutoSkip();
+
+      // Build and render the transcript follower panel
+      buildTranscriptLines();
+      renderTranscriptPanel();
 
     } catch (err) {
       console.error('[Waffle Skipper] Analysis failed:', err);
@@ -606,6 +630,9 @@
   }
 
   function handleTimeUpdate(video) {
+    // Always update transcript follower position, regardless of auto-skip toggle
+    updateTranscriptScroll(video.currentTime);
+
     // P1-5: Respect the auto-skip toggle — do nothing if user has disabled it
     if (!autoSkipEnabled) return;
     if (skipCooldown) return;
@@ -633,6 +660,7 @@
         wafflesZapped++;
         timeSavedSec += (segment.end - currentTime);
         showSkipFlash(); // Brief 🧇 pop animation on the video player
+        flashTranscriptLine(segment.start); // Orange flash in transcript panel
 
         skipCooldown = true;
         setTimeout(() => { skipCooldown = false; }, 300);
@@ -812,6 +840,224 @@
   }
 
   // ============================================================
+  // Transcript Follower Panel
+  // ============================================================
+  // Collapsible panel below the video that shows the full transcript
+  // synced to playback. Waffle segments are orange with strikethrough.
+  // Uses raw transcript events for per-caption granularity when available,
+  // falling back to backend-classified segments (coarser but always present).
+
+  // Build the flat list of transcript lines from the best available source.
+  // Called once after analysis completes. Each line has {start, end, text}.
+  function buildTranscriptLines() {
+    transcriptLines = [];
+
+    // Prefer raw transcript events from page-extractor for fine-grained,
+    // per-caption lines (each is typically 2-5 seconds of speech)
+    if (latestTranscriptData && latestTranscriptData.events) {
+      for (const event of latestTranscriptData.events) {
+        if (!event.segs) continue;
+        const text = event.segs.map(s => s.utf8 || '').join('').trim();
+        if (!text) continue;
+        const startSec = (event.tStartMs || 0) / 1000;
+        const endSec = startSec + ((event.dDurationMs || 0) / 1000);
+        transcriptLines.push({ start: startSec, end: endSec, text });
+      }
+    }
+
+    // Fallback: use the backend-classified segments (always available after analysis)
+    if (transcriptLines.length === 0) {
+      for (const seg of segments) {
+        const text = seg.text || seg.label || '';
+        if (!text) continue;
+        transcriptLines.push({ start: seg.start, end: seg.end, text });
+      }
+    }
+
+    transcriptLines.sort((a, b) => a.start - b.start);
+    console.log(`[Waffle Skipper] Transcript lines: ${transcriptLines.length} (${latestTranscriptData ? 'raw' : 'segments'})`);
+  }
+
+  // Check whether a transcript line falls within a waffle segment.
+  // Uses the midpoint of the line to find the overlapping classified segment,
+  // then applies the current intensity threshold.
+  function isLineWaffle(line) {
+    const mid = (line.start + line.end) / 2;
+    const seg = segments.find(s => mid >= s.start && mid < s.end);
+    if (!seg) return false;
+    return seg.waffle_confidence !== undefined
+      ? seg.waffle_confidence >= waffleThreshold
+      : seg.type === 'waffle';
+  }
+
+  // Inject the 📜 TRANSCRIPT toggle button next to the 🧇 SCAN button.
+  // Visible as soon as the video loads; clicking opens/closes the panel.
+  function injectTranscriptToggle() {
+    removeElement('#woffle-transcript-toggle');
+
+    transcriptToggleEl = document.createElement('button');
+    transcriptToggleEl.id = 'woffle-transcript-toggle';
+    transcriptToggleEl.textContent = '📜 TRANSCRIPT';
+    transcriptToggleEl.title = 'Toggle transcript panel';
+    transcriptToggleEl.classList.toggle('active', transcriptPanelOpen);
+
+    transcriptToggleEl.addEventListener('click', () => {
+      transcriptPanelOpen = !transcriptPanelOpen;
+      chrome.storage.sync.set({ transcriptPanelOpen });
+      if (transcriptPanelEl) {
+        transcriptPanelEl.classList.toggle('collapsed', !transcriptPanelOpen);
+      }
+      transcriptToggleEl.classList.toggle('active', transcriptPanelOpen);
+    });
+
+    // Place next to scan button
+    if (scanButtonEl && scanButtonEl.parentNode) {
+      scanButtonEl.parentNode.insertBefore(transcriptToggleEl, scanButtonEl.nextSibling);
+    }
+  }
+
+  // Build and inject the full transcript panel. Called once after analysis.
+  // Each transcript line becomes a clickable row with timestamp + text.
+  // Waffle lines get orange strikethrough treatment based on current intensity.
+  function renderTranscriptPanel() {
+    removeElement('#woffle-transcript-panel');
+    lastActiveTranscriptIdx = -1;
+
+    if (transcriptLines.length === 0) return;
+
+    transcriptPanelEl = document.createElement('div');
+    transcriptPanelEl.id = 'woffle-transcript-panel';
+    if (!transcriptPanelOpen) transcriptPanelEl.classList.add('collapsed');
+
+    const scrollContainer = document.createElement('div');
+    scrollContainer.className = 'woffle-transcript-scroll';
+
+    for (let i = 0; i < transcriptLines.length; i++) {
+      const line = transcriptLines[i];
+      const waffle = isLineWaffle(line);
+
+      const row = document.createElement('div');
+      row.className = `woffle-transcript-line${waffle ? ' waffle' : ''}`;
+      row.dataset.index = i;
+      row.dataset.start = line.start;
+      row.dataset.end = line.end;
+
+      // ▶ play indicator — only visible on the active (currently playing) row via CSS
+      const indicator = document.createElement('span');
+      indicator.className = 'woffle-transcript-indicator';
+
+      const timeEl = document.createElement('span');
+      timeEl.className = 'woffle-transcript-time';
+      timeEl.textContent = formatTime(line.start);
+
+      const textEl = document.createElement('span');
+      textEl.className = 'woffle-transcript-text';
+      textEl.textContent = line.text;
+
+      row.appendChild(indicator);
+      row.appendChild(timeEl);
+      row.appendChild(textEl);
+
+      // Click-to-seek: jump to this line's start time
+      row.addEventListener('click', () => {
+        const vid = document.querySelector('video');
+        if (vid) {
+          vid.currentTime = line.start;
+          console.log(`[Waffle Skipper] Transcript seek: ${formatTime(line.start)}`);
+        }
+      });
+
+      scrollContainer.appendChild(row);
+    }
+
+    transcriptPanelEl.appendChild(scrollContainer);
+
+    // Inject between the player area and the video title/description.
+    // Goes into #below (or #info) as the first child, after the scan button.
+    const belowPlayer = document.querySelector('#below') || document.querySelector('#info');
+    if (belowPlayer) {
+      // Insert after the scan/transcript buttons (which are the first children)
+      const insertRef = transcriptToggleEl?.nextSibling || scanButtonEl?.nextSibling || belowPlayer.firstChild;
+      belowPlayer.insertBefore(transcriptPanelEl, insertRef);
+    }
+  }
+
+  // Sync the transcript panel to the current playback position.
+  // Called from handleTimeUpdate (~4 times/sec). Only touches the DOM
+  // when the active line actually changes (avoids redundant work).
+  function updateTranscriptScroll(currentTime) {
+    if (!transcriptPanelEl || !transcriptPanelOpen) return;
+
+    // Find which transcript line covers the current time
+    let activeIdx = -1;
+    for (let i = 0; i < transcriptLines.length; i++) {
+      if (currentTime >= transcriptLines[i].start && currentTime < transcriptLines[i].end) {
+        activeIdx = i;
+        break;
+      }
+    }
+
+    // Only update DOM when the highlighted line changes
+    if (activeIdx === lastActiveTranscriptIdx) return;
+    lastActiveTranscriptIdx = activeIdx;
+
+    const scrollContainer = transcriptPanelEl.querySelector('.woffle-transcript-scroll');
+    if (!scrollContainer) return;
+
+    const rows = scrollContainer.querySelectorAll('.woffle-transcript-line');
+    for (const row of rows) {
+      row.classList.toggle('active', parseInt(row.dataset.index) === activeIdx);
+    }
+
+    // Smooth-scroll to keep the active line centred in the panel
+    if (activeIdx >= 0 && rows[activeIdx]) {
+      rows[activeIdx].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }
+
+  // Re-apply waffle/substance classification to all transcript lines.
+  // Called when intensity changes — lines that were substance at LIGHT
+  // may become waffle at HEAVY and vice versa.
+  function updateTranscriptClassifications() {
+    if (!transcriptPanelEl) return;
+
+    const rows = transcriptPanelEl.querySelectorAll('.woffle-transcript-line');
+    for (const row of rows) {
+      const idx = parseInt(row.dataset.index);
+      if (idx >= 0 && idx < transcriptLines.length) {
+        row.classList.toggle('waffle', isLineWaffle(transcriptLines[idx]));
+      }
+    }
+  }
+
+  // Flash a transcript line orange when it's auto-skipped.
+  // Provides visual feedback in the panel showing exactly what was cut.
+  function flashTranscriptLine(startTime) {
+    if (!transcriptPanelEl || !transcriptPanelOpen) return;
+
+    const rows = transcriptPanelEl.querySelectorAll('.woffle-transcript-line');
+    for (const row of rows) {
+      const start = parseFloat(row.dataset.start);
+      const end = parseFloat(row.dataset.end);
+      if (startTime >= start && startTime < end) {
+        row.classList.remove('skip-flash');
+        void row.offsetWidth; // force reflow to restart animation
+        row.classList.add('skip-flash');
+        setTimeout(() => row.classList.remove('skip-flash'), 600);
+        break;
+      }
+    }
+  }
+
+  // Hide transcript panel in fullscreen mode — too much screen real estate.
+  // YouTube fires fullscreenchange when entering/exiting fullscreen.
+  document.addEventListener('fullscreenchange', () => {
+    if (transcriptPanelEl) {
+      transcriptPanelEl.style.display = document.fullscreenElement ? 'none' : '';
+    }
+  });
+
+  // ============================================================
   // Intensity Control
   // ============================================================
   // Maps the 3 intensity levels to waffle_confidence thresholds.
@@ -838,6 +1084,8 @@
       renderTimeline();
       // Add fade-in class so the colour change doesn't feel jarring
       if (timelineEl) timelineEl.classList.add('intensity-transition');
+      // Update transcript panel — waffle/substance styling re-applies
+      updateTranscriptClassifications();
     }
   }
 
@@ -886,8 +1134,14 @@
     removeElement('#woffle-scan-btn');
     removeElement('#waffle-loading');
     removeElement('#waffle-error');
+    removeElement('#woffle-transcript-panel');
+    removeElement('#woffle-transcript-toggle');
     hideTooltip();
     scanButtonEl = null;
+    transcriptPanelEl = null;
+    transcriptToggleEl = null;
+    transcriptLines = [];
+    lastActiveTranscriptIdx = -1;
 
     if (timeupdateHandler) {
       const video = document.querySelector('video');

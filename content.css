@@ -280,6 +280,164 @@
 }
 
 /* ============================================================
+   Transcript toggle button — next to 🧇 SCAN button
+   ============================================================ */
+#woffle-transcript-toggle {
+  display: inline-flex;
+  align-items: center;
+  height: 36px;
+  margin: 4px 0 4px 4px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 2px solid var(--ws-dim);
+  background: rgba(10, 14, 38, 0.8);
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  color: var(--ws-dim);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  vertical-align: middle;
+}
+
+#woffle-transcript-toggle:hover {
+  border-color: var(--ws-gold);
+  color: var(--ws-gold);
+  background: rgba(226, 183, 20, 0.08);
+}
+
+#woffle-transcript-toggle.active {
+  border-color: var(--ws-cyan);
+  color: var(--ws-cyan);
+  background: rgba(0, 212, 255, 0.08);
+  box-shadow: 0 0 8px rgba(0, 212, 255, 0.2);
+}
+
+/* ============================================================
+   Transcript panel — collapsible synced transcript below player
+   ============================================================ */
+#woffle-transcript-panel {
+  width: 100%;
+  max-height: 200px;
+  overflow: hidden;
+  border: 1px solid rgba(226, 183, 20, 0.3);
+  border-radius: 0 0 8px 8px;
+  background: rgba(15, 52, 96, 0.95);
+  margin-bottom: 8px;
+  transition: max-height 0.3s ease-out, opacity 0.3s ease-out;
+}
+
+#woffle-transcript-panel.collapsed {
+  max-height: 0;
+  opacity: 0;
+  border-color: transparent;
+  margin-bottom: 0;
+  transition: max-height 0.2s ease-in, opacity 0.2s ease-in;
+}
+
+.woffle-transcript-scroll {
+  max-height: 200px;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+  padding: 4px 0;
+}
+
+/* Custom scrollbar — retro gold on dark */
+.woffle-transcript-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.woffle-transcript-scroll::-webkit-scrollbar-track {
+  background: rgba(10, 14, 38, 0.5);
+}
+.woffle-transcript-scroll::-webkit-scrollbar-thumb {
+  background: rgba(226, 183, 20, 0.3);
+  border-radius: 3px;
+}
+.woffle-transcript-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(226, 183, 20, 0.5);
+}
+
+/* ============================================================
+   Transcript line — single row: indicator + timestamp + text
+   ============================================================ */
+.woffle-transcript-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 3px 10px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.woffle-transcript-line:hover {
+  background: rgba(226, 183, 20, 0.06);
+}
+
+/* Active line — currently playing segment. Subtle gold tint background. */
+.woffle-transcript-line.active {
+  background: rgba(226, 183, 20, 0.1);
+}
+
+/* ▶ play indicator — only visible on the active (current) line */
+.woffle-transcript-indicator {
+  width: 12px;
+  flex-shrink: 0;
+  font-size: 8px;
+  color: var(--ws-cyan);
+  line-height: 20px;
+  text-align: center;
+}
+
+.woffle-transcript-line.active .woffle-transcript-indicator::before {
+  content: '▶';
+}
+
+/* Timestamp — small, dim, monospace */
+.woffle-transcript-time {
+  flex-shrink: 0;
+  width: 36px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  color: var(--ws-dim);
+  line-height: 20px;
+}
+
+/* Transcript text — VT323 for readability */
+.woffle-transcript-text {
+  font-family: 'VT323', monospace;
+  font-size: 14px;
+  line-height: 20px;
+  color: #e8e8e8;
+  word-break: break-word;
+}
+
+/* Waffle line — orange with strikethrough, reduced opacity.
+   Visually communicates "this was skipped" without hiding the text. */
+.woffle-transcript-line.waffle .woffle-transcript-text {
+  color: var(--ws-orange);
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.woffle-transcript-line.waffle .woffle-transcript-time {
+  color: rgba(255, 107, 53, 0.5);
+}
+
+/* Skip flash — brief orange flash when a waffle line is auto-skipped */
+.woffle-transcript-line.skip-flash {
+  animation: transcriptSkipFlash 0.6s ease-out;
+}
+
+@keyframes transcriptSkipFlash {
+  0%   { background: rgba(255, 107, 53, 0.3); }
+  100% { background: transparent; }
+}
+
+/* ============================================================
    Fullscreen + responsive adjustments
    ============================================================ */
-/* No fullscreen/responsive scoreboard rules needed — scoreboard removed. */
+/* Transcript panel hidden in fullscreen — too much screen real estate.
+   The JS fullscreenchange listener sets display:none, but this is a
+   CSS safety net for the YouTube-specific fullscreen class. */
+.ytp-fullscreen #woffle-transcript-panel {
+  display: none !important;
+}
