@@ -2,24 +2,11 @@
  * Retro arcade game HUD that sits on top of the YouTube player.
  * Timeline bar, scan button, tooltips, skip flash. No floating HUD. */
 
-/* ============================================================
-   Bundled fonts (P1-2) — loaded from extension package
-   ============================================================ */
-@font-face {
-  font-family: 'Press Start 2P';
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url('fonts/PressStart2P.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'VT323';
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url('fonts/VT323.woff2') format('woff2');
-}
+/* @font-face declarations removed from here.
+   Relative paths in a content script stylesheet resolve against the host page
+   (youtube.com), not the extension package. Instead, content.js injects a
+   <style> tag with chrome.runtime.getURL() paths at init time.
+   See injectFonts() in content.js. */
 
 /* ============================================================
    Tokens

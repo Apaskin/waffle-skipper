@@ -74,6 +74,36 @@
 
   console.log('[Woffle] Content script loaded');
 
+  // ============================================================
+  // Font injection — @font-face cannot use relative paths in a
+  // content-script stylesheet (they would resolve against youtube.com).
+  // Instead we build the correct chrome-extension:// URLs here and
+  // inject a <style> element into the document head once.
+  // ============================================================
+  (function injectFonts() {
+    if (document.getElementById('woffle-fonts')) return; // already injected
+    const ps2p = chrome.runtime.getURL('fonts/PressStart2P.woff2');
+    const vt323 = chrome.runtime.getURL('fonts/VT323.woff2');
+    const style = document.createElement('style');
+    style.id = 'woffle-fonts';
+    style.textContent = `
+@font-face {
+  font-family: 'Press Start 2P';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('${ps2p}') format('woff2');
+}
+@font-face {
+  font-family: 'VT323';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('${vt323}') format('woff2');
+}`;
+    document.head.appendChild(style);
+  })();
+
   // Load persisted preferences on startup
   chrome.storage.sync.get(['autoSkipEnabled', 'woffleIntensity', 'timelineAlwaysVisible', 'transcriptPanelOpen'], (result) => {
     autoSkipEnabled = result.autoSkipEnabled !== false;
@@ -430,6 +460,19 @@
     analysisError = null;
 
     console.log(`[Woffle] Analysis complete: ${segments.length} segments (cache: ${message.fromCache})`);
+
+    // DIAGNOSTIC: dump every segment's key fields so we can verify
+    // confidence values, categories, and labels are arriving correctly.
+    // Remove this log once the data shape is confirmed.
+    console.log('[Woffle] SEGMENT DATA:', JSON.stringify(
+      segments.map(s => ({
+        start: s.start,
+        end: s.end,
+        confidence: s.woffle_confidence || s.waffle_confidence,
+        category: s.category,
+        label: s.label
+      })), null, 2
+    ));
 
     // Normalize legacy segments
     for (const seg of segments) {
@@ -1152,6 +1195,13 @@
     currentIntensity = intensity;
     woffleThreshold = getWoffleThreshold(intensity);
     console.log(`[Woffle] Intensity → ${intensity.toUpperCase()} (threshold: ${woffleThreshold})`);
+
+    // DIAGNOSTIC: show how many segments clear the current threshold.
+    // Remove once confidence filtering is confirmed working.
+    const above = segments.filter(s =>
+      (s.woffle_confidence || s.waffle_confidence || 0) >= woffleThreshold
+    ).length;
+    console.log(`[Woffle] Intensity ${intensity}: ${above} of ${segments.length} segments are woffle at threshold ${woffleThreshold}`);
 
     if (segments.length > 0) {
       renderTimeline();
