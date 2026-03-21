@@ -11,10 +11,9 @@
 // The actual API keys live in the Cloudflare Worker's environment.
 
 const WOFFLE_CONFIG = {
-  // TODO: Replace with real URLs after deployment
-  WORKER_URL: 'https://woffle-api.example.workers.dev',
-  SUPABASE_URL: 'https://your-project.supabase.co',
-  SUPABASE_ANON_KEY: 'your-supabase-anon-key',
+  WORKER_URL: 'https://woffle-api.andrewpaskin.workers.dev',
+  SUPABASE_URL: 'https://ujnpvbkncorgjqnbkfsa.supabase.co',
+  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVqbnB2YmtuY29yZ2pxbmJrZnNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwMTYyNTAsImV4cCI6MjA4OTU5MjI1MH0.Jr3myWTmWUs58EgRzS_7iuJ4LzBOP2pn647fbgrDxGU',
 };
 
 // ============================================================
