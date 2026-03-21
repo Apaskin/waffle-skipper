@@ -76,6 +76,16 @@
   z-index: 1;
 }
 
+/* Fade-in when intensity changes — segments re-render with new colours */
+#waffle-timeline.intensity-transition {
+  animation: timelineFadeIn 0.3s ease;
+}
+
+@keyframes timelineFadeIn {
+  from { opacity: 0.3; }
+  to   { opacity: 1; }
+}
+
 /* ============================================================
    Tooltip — appears on segment hover
    ============================================================ */

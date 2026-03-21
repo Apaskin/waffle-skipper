@@ -1,6 +1,7 @@
 // popup.js — Woffle popup script.
-// Queries content script for video status, manages mode selector,
-// shows credit counter + tier badge, and handles upgrade/top-up CTAs.
+// Queries content script for video status, manages auto-skip toggle
+// and intensity selector, shows credit counter + tier badge,
+// and handles upgrade/top-up CTAs.
 
 document.addEventListener('DOMContentLoaded', async () => {
 
@@ -31,6 +32,69 @@ document.addEventListener('DOMContentLoaded', async () => {
   function setToggleState(enabled) {
     btnAutoToggle.textContent = enabled ? 'ON ⚡' : 'OFF';
     btnAutoToggle.className = `auto-toggle ${enabled ? 'on' : 'off'}`;
+  }
+
+  // ============================================================
+  // Intensity selector — light / medium / heavy
+  // ============================================================
+  // Changes the waffle_confidence threshold client-side. Sends SET_INTENSITY
+  // to the content script which re-renders the timeline and returns updated
+  // stats (WAFFLES FOUND and TIME SAVEABLE recalculate based on threshold).
+
+  const intensityBtns = document.querySelectorAll('.intensity-btn');
+  const { woffleIntensity: initIntensity = 'medium' } = await chrome.storage.sync.get('woffleIntensity');
+  setActiveIntensity(initIntensity);
+
+  intensityBtns.forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const intensity = btn.dataset.intensity;
+      setActiveIntensity(intensity);
+      await chrome.storage.sync.set({ woffleIntensity: intensity });
+
+      // Tell the content script to re-filter and get back updated stats
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tab && tab.url && tab.url.includes('youtube.com/watch')) {
+          const status = await chrome.tabs.sendMessage(tab.id, {
+            type: 'SET_INTENSITY',
+            intensity,
+          });
+          if (status) updateStats(status);
+        }
+      } catch (err) {
+        console.log('[Woffle] Could not update intensity on content script:', err.message);
+      }
+    });
+  });
+
+  function setActiveIntensity(intensity) {
+    intensityBtns.forEach(b => {
+      b.classList.toggle('active', b.dataset.intensity === intensity);
+    });
+  }
+
+  // ============================================================
+  // Stats helper — update score counters and ratio bar
+  // ============================================================
+  // Called on popup open (from GET_STATUS) and when intensity changes
+  // (from SET_INTENSITY response). WAFFLES FOUND and TIME SAVEABLE
+  // recalculate based on intensity; WAFFLES ZAPPED and TIME SAVED
+  // are historical session counters that don't change.
+
+  function updateStats(status) {
+    document.getElementById('stat-waffle-count').textContent = status.waffleCount || 0;
+    document.getElementById('stat-time-saveable').textContent =
+      formatTimeSaved(status.totalWaffleTimeSec || 0);
+    document.getElementById('stat-skipped').textContent = status.wafflesZapped || 0;
+    document.getElementById('stat-time-saved').textContent =
+      formatTimeSaved(status.timeSavedSec || 0);
+
+    const total = (status.substanceCount || 0) + (status.waffleCount || 0);
+    if (total > 0) {
+      const subPct = Math.round((status.substanceCount / total) * 100);
+      document.getElementById('ratio-substance').style.width = subPct + '%';
+      document.getElementById('ratio-waffle').style.width = (100 - subPct) + '%';
+    }
   }
 
   // ============================================================
@@ -157,21 +221,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       statusEl.className = 'analysis-status';
     }
 
-    // Score counters
-    document.getElementById('stat-waffle-count').textContent = status.waffleCount || 0;
-    document.getElementById('stat-time-saveable').textContent =
-      formatTimeSaved(status.totalWaffleTimeSec || 0);
-    document.getElementById('stat-skipped').textContent = status.wafflesZapped || 0;
-    document.getElementById('stat-time-saved').textContent =
-      formatTimeSaved(status.timeSavedSec || 0);
-
-    // Ratio bar
-    const total = (status.substanceCount || 0) + (status.waffleCount || 0);
-    if (total > 0) {
-      const subPct = Math.round((status.substanceCount / total) * 100);
-      document.getElementById('ratio-substance').style.width = subPct + '%';
-      document.getElementById('ratio-waffle').style.width = (100 - subPct) + '%';
-    }
+    // Score counters + ratio bar
+    updateStats(status);
 
   } catch (err) {
     console.log('[Woffle] Could not connect to content script:', err.message);

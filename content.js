@@ -33,9 +33,12 @@
   let bypassAutoSkipUntil = 0;
 
   // Intensity threshold — determines what confidence score counts as "waffle".
-  // Maps to the three intensity levels defined in CLAUDE.md:
+  // Maps to the three intensity levels:
   //   light (80+), medium (50+, default), heavy (25+)
-  let waffleThreshold = 50; // Default: medium — waffle_confidence >= 50 is waffle
+  // Both waffleThreshold and currentIntensity are kept in sync — the threshold
+  // is derived from the intensity via getWaffleThreshold().
+  let waffleThreshold = 50;
+  let currentIntensity = 'medium';
 
   // References to injected DOM elements (for cleanup)
   let timelineEl = null;
@@ -56,15 +59,23 @@
 
   console.log('[Waffle Skipper] Content script loaded');
 
-  // Load the persisted auto-skip preference on startup
-  chrome.storage.sync.get('autoSkipEnabled', (result) => {
+  // Load persisted preferences on startup
+  chrome.storage.sync.get(['autoSkipEnabled', 'woffleIntensity'], (result) => {
     autoSkipEnabled = result.autoSkipEnabled !== false;
+    if (result.woffleIntensity) {
+      currentIntensity = result.woffleIntensity;
+      waffleThreshold = getWaffleThreshold(currentIntensity);
+    }
   });
 
-  // Listen for live toggle changes from the popup (takes effect immediately)
+  // Listen for live preference changes from the popup (take effect immediately)
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'sync' && 'autoSkipEnabled' in changes) {
+    if (area !== 'sync') return;
+    if ('autoSkipEnabled' in changes) {
       autoSkipEnabled = changes.autoSkipEnabled.newValue !== false;
+    }
+    if ('woffleIntensity' in changes) {
+      applyIntensity(changes.woffleIntensity.newValue || 'medium');
     }
   });
 
@@ -72,9 +83,18 @@
   // Initialization
   // ============================================================
 
-  // Listen for status requests from popup
+  // Listen for messages from popup
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'GET_STATUS') {
+      sendResponse(getStatus());
+      return true;
+    }
+    if (message.type === 'SET_INTENSITY') {
+      // Apply new threshold, re-render timeline, persist, return updated stats.
+      // The popup uses the returned status to update score counters immediately.
+      const intensity = message.intensity || 'medium';
+      applyIntensity(intensity);
+      chrome.storage.sync.set({ woffleIntensity: intensity });
       sendResponse(getStatus());
       return true;
     }
@@ -270,6 +290,17 @@
       }
 
       segments = result.segments || [];
+
+      // Normalize legacy segments that only have type ("waffle"/"substance")
+      // but no waffle_confidence score. Synthetic scores ensure the intensity
+      // selector works uniformly: "waffle" → 90 (caught by all levels),
+      // "substance" → 10 (never caught).
+      for (const seg of segments) {
+        if (seg.waffle_confidence === undefined) {
+          seg.waffle_confidence = seg.type === 'waffle' ? 90 : 10;
+        }
+      }
+
       isAnalyzing = false;
       console.log(`[Waffle Skipper] Analysis complete: ${segments.length} segments`);
 
@@ -703,6 +734,36 @@
   }
 
   // ============================================================
+  // Intensity Control
+  // ============================================================
+  // Maps the 3 intensity levels to waffle_confidence thresholds.
+  // Changing intensity re-renders the timeline and updates skip logic
+  // entirely client-side — no new API call, just re-filtering cached segments.
+
+  function getWaffleThreshold(intensity) {
+    switch (intensity) {
+      case 'light':  return 80; // Only obvious waffle: sponsors, plugs, subscribe pleas
+      case 'medium': return 50; // + tangents, repetition, long intros, padding
+      case 'heavy':  return 25; // + anecdotes, banter, context-setting, repeated points
+      default:       return 50;
+    }
+  }
+
+  function applyIntensity(intensity) {
+    currentIntensity = intensity;
+    waffleThreshold = getWaffleThreshold(intensity);
+    console.log(`[Waffle Skipper] Intensity → ${intensity.toUpperCase()} (threshold: ${waffleThreshold})`);
+
+    // Re-render the timeline if we have cached segments — segments flip
+    // between green (substance) and orange (waffle) based on the new threshold.
+    if (segments.length > 0) {
+      renderTimeline();
+      // Add fade-in class so the colour change doesn't feel jarring
+      if (timelineEl) timelineEl.classList.add('intensity-transition');
+    }
+  }
+
+  // ============================================================
   // Status (for popup)
   // ============================================================
 
@@ -733,6 +794,7 @@
       wafflesZapped,
       timeSavedSec,
       autoSkipEnabled,
+      waffleIntensity: currentIntensity,
       videoDuration: video?.duration || 0,
     };
   }
