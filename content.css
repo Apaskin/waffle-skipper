@@ -36,16 +36,16 @@
 }
 
 /* ============================================================
-   Timeline bar — thin colour-coded strip below progress bar
+   Timeline bar — 14px strip between player and title
+   Sits outside #movie_player entirely so it never overlaps
+   YouTube's controls or fights with show/hide behaviour.
    ============================================================ */
 #waffle-timeline {
   position: relative;
   width: 100%;
-  height: 12px;
-  margin-top: 2px;
+  height: 14px;
   border-radius: 2px;
   overflow: hidden;
-  z-index: 60;
   cursor: pointer;
   background: linear-gradient(180deg, rgba(20, 28, 60, 0.9), rgba(8, 12, 28, 0.95));
   border: 1px solid rgba(226, 183, 20, 0.2);
@@ -86,24 +86,8 @@
   to   { opacity: 1; }
 }
 
-/* Always-visible mode: injected into #movie_player, not .ytp-chrome-bottom.
-   Positioned absolutely via JS so it sits just below the progress bar and
-   is never affected by YouTube's opacity:0 auto-hide on the controls. */
-#movie_player > #waffle-timeline,
-#movie_player > #waffle-loading,
-#movie_player > #waffle-error {
-  /* z-index set inline by positionTimelineAbsolute(); these rules handle
-     pointer-events and ensure the bar doesn't block click-throughs */
-  pointer-events: auto;
-}
-
-#waffle-timeline.always-visible,
-#waffle-loading.always-visible,
-#waffle-error.always-visible {
-  /* Override any inherited opacity — these elements are in #movie_player,
-     outside .ytp-chrome-bottom, so this is mainly defensive */
-  opacity: 1 !important;
-}
+/* Timeline is now injected outside #movie_player entirely (between player
+   and title), so no always-visible overrides or pointer-events hacks needed. */
 
 /* Keyboard nav flash — brief highlight on the segment the user jumped to */
 .waffle-segment.nav-flash {
@@ -234,9 +218,8 @@
 #waffle-error {
   position: relative;
   width: 100%;
-  height: 22px;
-  margin-top: 2px;
-  border-radius: 3px;
+  height: 14px;
+  border-radius: 2px;
   display: flex;
   align-items: center;
   justify-content: center;

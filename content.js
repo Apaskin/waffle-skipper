@@ -572,52 +572,24 @@
   }
 
   function injectTimeline(el) {
-    if (timelineAlwaysVisible) {
-      const player = document.querySelector('#movie_player');
-      if (player) {
-        el.classList.add('always-visible');
-        positionTimelineAbsolute(el);
-        player.appendChild(el);
+    // Insert the timeline BELOW the player container, between the video and
+    // the title/metadata. This avoids overlapping YouTube's controls entirely
+    // and doesn't fight with YouTube's show/hide behaviour.
+    const player = document.querySelector('#movie_player');
+    if (player && player.parentNode) {
+      // Insert after #movie_player (or its parent container #player)
+      const playerContainer = document.querySelector('#player') || player;
+      if (playerContainer.parentNode) {
+        playerContainer.parentNode.insertBefore(el, playerContainer.nextSibling);
         return;
       }
     }
 
-    // Standard inject: lives inside .ytp-chrome-bottom (hides with controls)
-    const progressBar = document.querySelector('.ytp-progress-bar-container');
-    if (progressBar && progressBar.parentNode) {
-      progressBar.parentNode.insertBefore(el, progressBar.nextSibling);
-      return;
+    // Fallback: insert at top of #below
+    const belowPlayer = document.querySelector('#below') || document.querySelector('#info');
+    if (belowPlayer) {
+      belowPlayer.insertBefore(el, belowPlayer.firstChild);
     }
-
-    const chromeBottom = document.querySelector('.ytp-chrome-bottom');
-    if (chromeBottom) {
-      chromeBottom.appendChild(el);
-      return;
-    }
-
-    const player = document.querySelector('#movie_player');
-    if (player) {
-      player.appendChild(el);
-    }
-  }
-
-  // Calculate where the progress bar sits within #movie_player and position
-  // the given element just below it using absolute coordinates.
-  function positionTimelineAbsolute(el) {
-    const player = document.querySelector('#movie_player');
-    const progressBar = document.querySelector('.ytp-progress-bar-container');
-    if (!player || !progressBar) return;
-
-    const playerRect = player.getBoundingClientRect();
-    const barRect = progressBar.getBoundingClientRect();
-
-    el.style.position = 'absolute';
-    el.style.left = '0';
-    el.style.right = '0';
-    el.style.width = '100%';
-    const topPx = barRect.bottom - playerRect.top;
-    el.style.top = `${topPx}px`;
-    el.style.zIndex = '80';
   }
 
   // ============================================================
