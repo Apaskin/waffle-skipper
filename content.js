@@ -162,7 +162,12 @@
       // calls applyIntensity() again, causing a double re-render.
       const intensity = message.intensity || 'medium';
       console.log(`[Woffle] SET_INTENSITY received: ${intensity} (segments: ${segments.length})`);
-      applyIntensity(intensity);
+      try {
+        applyIntensity(intensity);
+      } catch (e) {
+        // Don't let a render error prevent sending the updated stats back
+        console.error('[Woffle] applyIntensity error:', e);
+      }
       sendResponse(getStatus());
       return true;
     }

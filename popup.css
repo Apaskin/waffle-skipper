@@ -437,6 +437,32 @@ body {
   border-top: 6px solid var(--gold);
 }
 
+/* LIGHT: anchor tooltip to the button's left edge so it doesn't
+   overflow the left side of the popup. Arrow shifted right to still
+   point at the button's centre. */
+.intensity-btn[data-intensity="light"] .intensity-tooltip {
+  left: 0;
+  transform: none;
+}
+.intensity-btn[data-intensity="light"] .intensity-tooltip-arrow {
+  left: 30px;
+  transform: none;
+}
+
+/* HEAVY: anchor tooltip to the button's right edge so it doesn't
+   overflow the right side of the popup. Arrow shifted left to still
+   point at the button's centre. */
+.intensity-btn[data-intensity="heavy"] .intensity-tooltip {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+.intensity-btn[data-intensity="heavy"] .intensity-tooltip-arrow {
+  left: auto;
+  right: 30px;
+  transform: none;
+}
+
 /* ============================================================
    Timeline visibility — slim checkbox panel between intensity and score
    ============================================================ */

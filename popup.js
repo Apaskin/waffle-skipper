@@ -51,14 +51,22 @@ document.addEventListener('DOMContentLoaded', async () => {
       setActiveIntensity(intensity);
       await chrome.storage.sync.set({ woffleIntensity: intensity });
 
-      // Tell the content script to re-filter and get back updated stats
+      // Tell the content script to re-filter and get back updated stats.
+      // SET_INTENSITY returns a status object directly; if for any reason the
+      // response is missing (e.g. render error swallowed before sendResponse),
+      // fall back to a plain GET_STATUS so the counters always refresh.
       try {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if (tab && tab.url && tab.url.includes('youtube.com/watch')) {
-          const status = await chrome.tabs.sendMessage(tab.id, {
+          let status = await chrome.tabs.sendMessage(tab.id, {
             type: 'SET_INTENSITY',
             intensity,
           });
+          if (!status) {
+            // Fallback: intensity was already written to storage, so content.js
+            // has the correct threshold via storage.onChanged — just re-read status
+            status = await chrome.tabs.sendMessage(tab.id, { type: 'GET_STATUS' });
+          }
           if (status) updateStats(status);
         }
       } catch (err) {
