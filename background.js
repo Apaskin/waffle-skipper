@@ -497,7 +497,7 @@ async function evictLocalCache() {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'ANALYZE_VIDEO') {
-    handleAnalyzeVideo(message.videoId, message.captionUrl, message.transcriptData)
+    handleAnalyzeVideo(message.videoId, message.captionUrl, message.transcriptData, message.videoTitle)
       .then(result => sendResponse(result))
       .catch(err => sendResponse({ error: err.message }));
     return true; // Keep message channel open for async response
@@ -638,7 +638,7 @@ async function handleGetCheckoutUrl(tier, topup) {
 // 4. Backend calls Claude, stores in shared cache, deducts credit
 // 5. Store result in local cache too
 
-async function handleAnalyzeVideo(videoId, captionUrl, transcriptData) {
+async function handleAnalyzeVideo(videoId, captionUrl, transcriptData, videoTitle) {
   if (!videoId) return { error: 'NO_VIDEO_ID' };
 
   // 1. Local cache
@@ -691,6 +691,7 @@ async function handleAnalyzeVideo(videoId, captionUrl, transcriptData) {
     body: JSON.stringify({
       video_id: videoId,
       transcript_chunks: chunks,
+      video_title: videoTitle || undefined,
     }),
   });
 

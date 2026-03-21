@@ -282,12 +282,21 @@
         console.warn('[Waffle Skipper] No transcript captured from page extractor; trying background fallback');
       }
 
+      // Grab the video title — it's a strong signal for topic identification.
+      // The worker passes it to Claude so the AI can anchor classification
+      // against what the video is actually about.
+      const videoTitle = document.querySelector('yt-formatted-string.ytd-watch-metadata')?.textContent
+        || document.querySelector('#title h1')?.textContent
+        || document.title.replace(' - YouTube', '')
+        || '';
+
       // Send to background for chunking + Claude classification
       const result = await chrome.runtime.sendMessage({
         type: 'ANALYZE_VIDEO',
         videoId: videoId,
         captionUrl: null,
-        transcriptData: transcriptData
+        transcriptData: transcriptData,
+        videoTitle: videoTitle.trim()
       });
 
       // Check if the user navigated away while we were analyzing

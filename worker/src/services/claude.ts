@@ -22,22 +22,84 @@ export interface ScoredSegment {
 // The exact system prompt. Changes here MUST be accompanied by a
 // PROMPT_VERSION bump in wrangler.toml so stale cache entries are
 // bypassed and re-analysed with the new prompt.
-const SYSTEM_PROMPT = `You analyse YouTube video transcripts to detect filler content ("waffle").
+//
+// v2.0 — Topic-anchored scoring. Identifies the video topic first, then
+//         scores each segment against it. Adds category granularity
+//         (pleasantries, cohost_echo, context), explicit podcast/interview
+//         rules for co-host filler, and an assertive calibration nudge.
+const SYSTEM_PROMPT = `You analyse YouTube video transcripts to detect filler content ("waffle") that wastes the viewer's time.
 
-For each segment, return a waffle_confidence score from 0-100:
-- 90-100: Definite waffle — sponsor reads, ad segments, "like and subscribe" pleas, merch/patreon plugs
-- 70-89: Strong waffle — completely off-topic tangents, repeated information already covered, extended "before we begin" padding
-- 50-69: Probable waffle — personal anecdotes loosely related to topic, overly long examples, slow preamble
-- 30-49: Borderline — context-setting that some viewers want, entertaining tangents that circle back, background information
-- 10-29: Mostly substance — relevant with minor digressions
-- 0-9: Pure substance — core content, key arguments, instructions, insights
+STEP 1: Read the full transcript. Identify the VIDEO TOPIC — what is this video actually about? State it in one sentence. This is your anchor for all classification: keep things the video IS ABOUT, cut everything else.
 
-Also classify each segment's category: "sponsor", "self_promo", "tangent", "filler", "repetition", "intro_outro", "substance"
+STEP 2: For each segment, assign a waffle_confidence score (0-100) based on how relevant it is to the VIDEO TOPIC:
 
-Respond ONLY with a JSON array, no other text:
-[{"start": 0, "end": 30, "waffle_confidence": 85, "category": "intro_outro", "label": "Extended intro with channel branding"}, ...]
+95-100 DEFINITE WAFFLE — zero relation to the video topic:
+- Sponsor reads, ad segments, paid promotions
+- "Like and subscribe", "hit the bell", "leave a comment below"
+- Patreon, merch, social media plugs
+- Channel branding intros/outros with no content
 
-Be precise with timestamps. Every second of the video must be covered — no gaps between segments. Adjacent segments with the same classification should be merged.`;
+80-94 STRONG WAFFLE — not about the topic:
+- Generic pleasantries: "hope you're having a great day", weather chat, "how's everyone doing"
+- Personal life updates unrelated to the topic: what they ate, their commute, weekend plans
+- "Before we get into it..." padding that doesn't actually get into it
+- Repetition of something already said (same point, rephrased)
+- Thanking other creators, shoutouts unrelated to content
+- Co-host/sidekick reactions that add no substance: "yeah totally", "that's crazy", "wow", "right right right"
+- Co-host echoing or rephrasing what the main speaker just said without adding new information ("So basically what you're saying is..." then repeating the same point)
+
+60-79 PROBABLE WAFFLE — loosely related tangent:
+- Personal anecdotes that are entertaining but don't advance the topic
+- Extended examples that repeat a point already made
+- Off-topic digressions that eventually circle back
+- Overly long context-setting that could have been shorter
+
+40-59 BORDERLINE — debatable relevance:
+- Background context some viewers might want
+- Stories that illustrate the point but take longer than necessary
+- Introductions of people/concepts needed later but done slowly
+
+20-39 MOSTLY SUBSTANCE — relevant with minor padding:
+- On-topic but slightly verbose
+- Good content with some filler words or hedging
+
+0-19 PURE SUBSTANCE — core content:
+- Direct teaching, arguments, insights, facts about the topic
+- Key stories that ARE the content (not illustrations of it)
+- Essential context without which the topic makes no sense
+- Conclusions, summaries, actionable takeaways
+
+STEP 3: Also classify each segment's category. Use exactly one of:
+- "sponsor" — paid promotion or ad read
+- "self_promo" — subscribe, bell, merch, patreon, social plugs
+- "pleasantries" — greetings, weather, "hope you're well", generic chat
+- "tangent" — off-topic story or digression
+- "repetition" — restating something already covered
+- "cohost_echo" — co-host repeating, echoing, or reacting without adding substance
+- "filler" — ums, dead air, "so yeah", padding
+- "intro_outro" — channel branding, opening/closing sequences
+- "context" — background info, setup for the main topic
+- "substance" — core content about the video topic
+
+PODCAST/INTERVIEW RULES:
+- In multi-speaker videos, identify the PRIMARY speaker (the guest, expert, or person with the interesting story). Their on-topic content is almost always substance.
+- Co-hosts, interviewers, and sidekicks who merely react ("wow", "that's insane", "right right right"), echo what was just said, or rephrase the primary speaker's points without adding NEW information should be classified as cohost_echo (confidence 80-90).
+- Co-hosts who ask genuinely new questions, challenge a point, or introduce new information ARE substance.
+- The test: if you removed the co-host's segment, would the viewer miss any information? If no, it's waffle.
+
+Respond ONLY with valid JSON. No other text, no markdown fences, no explanation.
+
+First line: {"video_topic": "one sentence description of what this video is about"}
+Then a JSON array of segments:
+[{"start": 0, "end": 30, "waffle_confidence": 85, "category": "pleasantries", "label": "Host greets viewers and talks about the weather"}, ...]
+
+RULES:
+- Every second of the transcript must be covered — no gaps between segments.
+- Merge adjacent segments with the same classification (within 10 points of confidence).
+- Short segments (under 10 seconds) should be merged with their neighbours.
+- Be AGGRESSIVE about detecting waffle — viewers came for the topic, not the padding.
+- A 10-minute video typically has 2-4 minutes of waffle. If you're finding zero waffle, you're being too lenient.
+- Use the video title (provided in the user message) as a strong signal for what the video is about.`;
 
 // Model fallback candidates — try each in order until one works
 const MODEL_CANDIDATES = [
@@ -49,10 +111,14 @@ const MODEL_CANDIDATES = [
 /**
  * Send transcript chunks to Claude and get back confidence-scored segments.
  * Handles model fallback and response parsing.
+ *
+ * @param videoTitle — optional YouTube video title, passed to Claude as a
+ *   strong signal for what the video is about (topic anchor).
  */
 export async function classifyTranscript(
   chunks: TranscriptChunk[],
-  env: Env
+  env: Env,
+  videoTitle?: string
 ): Promise<ScoredSegment[]> {
   const BATCH_SIZE = 40;
   const allSegments: ScoredSegment[] = [];
@@ -60,7 +126,7 @@ export async function classifyTranscript(
   // Process in batches of 40 chunks to stay within context limits
   for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
     const batch = chunks.slice(i, i + BATCH_SIZE);
-    const batchResult = await classifyBatch(batch, env);
+    const batchResult = await classifyBatch(batch, env, videoTitle);
     allSegments.push(...batchResult);
   }
 
@@ -70,17 +136,19 @@ export async function classifyTranscript(
 
 async function classifyBatch(
   chunks: TranscriptChunk[],
-  env: Env
+  env: Env,
+  videoTitle?: string
 ): Promise<ScoredSegment[]> {
-  // Build the user message with numbered segments
+  // Build the user message — include video title as topic anchor when available
   const chunkText = chunks
     .map(
       (c, i) =>
-        `Segment ${i + 1} [${fmtTime(c.start)} - ${fmtTime(c.end)}]:\n${c.text}`
+        `[${fmtTime(c.start)} - ${fmtTime(c.end)}] ${c.text}`
     )
     .join('\n\n');
 
-  const userMessage = `Classify each segment:\n\n${chunkText}`;
+  const titleLine = videoTitle ? `Video title: "${videoTitle}"\n\n` : '';
+  const userMessage = `${titleLine}Transcript:\n${chunkText}`;
 
   // Try each model candidate until one succeeds
   let lastError: Error | null = null;
@@ -141,7 +209,10 @@ async function classifyBatch(
 
 /**
  * Parse Claude's JSON response into typed ScoredSegment array.
- * Handles markdown fences, stray text, etc.
+ * Handles the v2 response format:
+ *   {"video_topic": "..."}
+ *   [{"start": 0, "end": 30, ...}, ...]
+ * Also handles markdown fences, stray text, single JSON array, etc.
  */
 function parseSegments(text: string): ScoredSegment[] {
   const cleaned = text
@@ -150,6 +221,7 @@ function parseSegments(text: string): ScoredSegment[] {
     .replace(/\s*```$/, '')
     .trim();
 
+  // Extract the JSON array (skip the video_topic line if present)
   const arrayMatch = cleaned.match(/\[[\s\S]*\]/);
   if (!arrayMatch) throw new Error('No JSON array in Claude response');
 

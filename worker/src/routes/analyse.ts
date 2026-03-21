@@ -88,7 +88,7 @@ export async function handleAnalyse(request: Request, env: Env): Promise<Respons
   // 5. Call Claude
   let segments;
   try {
-    segments = await classifyTranscript(transcript_chunks, env);
+    segments = await classifyTranscript(transcript_chunks, env, video_title);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error('[Woffle] Classification failed:', message);
