@@ -1,69 +1,8 @@
 {
   "video_id": "ZOZLUnTCTbQ",
   "video_title": "Underworld Confessions Untold Stories From Ex-Mafia Member The Brooklyn Faction Was Ruthless",
-  "video_duration_seconds": 1064,
-  "notes": "SEED DATA — replace the transcript array with real transcript chunks from the extension's console output. Refine human_labels after running the eval to see what the AI actually produces. The labels below are best-guess starting points based on typical mafia-interview content patterns.",
-
-  "transcript": [
-    {"start": 0, "end": 10, "text": "[Music]"},
-    {"start": 10, "end": 25, "text": "Back to uh the neighborhood the Brooklyn faction was you know they were ruthless absolutely ruthless and we knew it"},
-    {"start": 25, "end": 42, "text": "because when you're growing up in that environment you see things as a kid that you shouldn't see and it shapes who you become"},
-    {"start": 42, "end": 58, "text": "the Brooklyn crew they had a different mentality than the other boroughs they didn't care about the rules as much they just wanted to get things done"},
-    {"start": 58, "end": 75, "text": "I remember one time there was a situation where a guy owed money and he thought he could just you know hide from it and that's not how it works"},
-    {"start": 75, "end": 92, "text": "so they sent some guys over to his place of business and within 24 hours the money was there I mean that's just how fast things moved"},
-    {"start": 92, "end": 108, "text": "wow that's incredible so they really had that kind of reach even back then"},
-    {"start": 108, "end": 125, "text": "oh absolutely and it wasn't just Brooklyn they had connections everywhere I mean we're talking about a network that extended into New Jersey into Connecticut"},
-    {"start": 125, "end": 142, "text": "the hierarchy was very clear you had the boss then you had the underboss the consigliere and then the captains each captain had his own crew"},
-    {"start": 142, "end": 152, "text": "right right or go to a meeting or something yeah totally"},
-    {"start": 152, "end": 170, "text": "exactly and each crew had specific responsibilities some handled the unions some handled the construction some handled the gambling operations"},
-    {"start": 170, "end": 188, "text": "so let me ask you about something that a lot of people are curious about how did the initiation process work what was that ceremony like"},
-    {"start": 188, "end": 210, "text": "so the initiation it's called getting made and it's a very serious thing you don't just walk in and say hey I want to be a member there's a whole process"},
-    {"start": 210, "end": 230, "text": "first you have to be proposed by a made member someone who vouches for you with their life and I mean that literally if you screw up the guy who proposed you pays for it"},
-    {"start": 230, "end": 250, "text": "then there's a period where they watch you they test you they see how you handle yourself under pressure do you keep your mouth shut do you follow orders"},
-    {"start": 250, "end": 265, "text": "that's crazy man that's absolutely insane when you think about it"},
-    {"start": 265, "end": 285, "text": "and then the actual ceremony it's very traditional you sit at a table with the boss and the other made members they prick your finger they put a picture of a saint in your hand"},
-    {"start": 285, "end": 305, "text": "and they light it on fire and you swear an oath that you will live and die by the rules of this thing of ours and that's it you're in for life"},
-    {"start": 305, "end": 320, "text": "there's no retirement plan there's no two weeks notice once you're in you're in until you're in the ground or you're in prison"},
-    {"start": 320, "end": 340, "text": "so speaking of prison because you did spend time behind bars what was that experience like for a made member going into the prison system"},
-    {"start": 340, "end": 360, "text": "prison for a made guy is different than for a regular inmate when you walk in people know who you are there's a certain respect that comes with the name"},
-    {"start": 360, "end": 380, "text": "but it's also dangerous because there are people in there who want to make a name for themselves and taking out a mob guy that's a big scalp"},
-    {"start": 380, "end": 398, "text": "so you always had to watch your back you always had to be aware of your surroundings and you had to have your people around you"},
-    {"start": 398, "end": 415, "text": "hey guys before we continue I want to tell you about this channel if you haven't already make sure you like and subscribe hit that bell notification so you don't miss any of our episodes"},
-    {"start": 415, "end": 432, "text": "we've also got merch available check the link in the description we've got t-shirts hoodies all kinds of stuff alright back to the conversation"},
-    {"start": 432, "end": 452, "text": "so Frank when you got out of prison what was re-entering society like after being in that world for so long"},
-    {"start": 452, "end": 475, "text": "re-entering society that's the hardest part because the world moves on without you technology changed everything changed my kids grew up while I was inside"},
-    {"start": 475, "end": 495, "text": "and you can't just go back to the life because you're on parole they're watching everything you do where you go who you talk to"},
-    {"start": 495, "end": 515, "text": "it's like being a fish out of water you know everything you knew how to do everything you were good at you can't do anymore you gotta find a new way"},
-    {"start": 515, "end": 530, "text": "yeah yeah that makes total sense man wow just wow"},
-    {"start": 530, "end": 550, "text": "and the hardest thing is the loneliness because all those guys you thought were your brothers when you're no longer useful they disappear"},
-    {"start": 550, "end": 570, "text": "that's the biggest lesson I learned loyalty in that world is conditional it lasts exactly as long as you're useful and not one second longer"},
-    {"start": 570, "end": 590, "text": "so now I try to use my experience to help kids stay out of that life I go to schools I talk to community groups I tell them the truth"},
-    {"start": 590, "end": 610, "text": "I tell them there's no glory in it there's no movie ending you either end up dead or in prison and if you're lucky enough to get out like I did you've lost everything"},
-    {"start": 610, "end": 630, "text": "the neighborhood has changed too a lot of the old places are gone the bakeries the social clubs the places where we used to hang out it's all been gentrified"},
-    {"start": 630, "end": 645, "text": "you know what it reminds me of actually my grandmother used to make this incredible pasta and we'd all sit around on Sundays and that was the one day where everything was normal"},
-    {"start": 645, "end": 660, "text": "it was like the mob life didn't exist on Sundays at grandma's house we were just a family eating pasta and that's what I miss the most"},
-    {"start": 660, "end": 680, "text": "speaking of food though I was at this restaurant last week and the waiter recognized me from the show and he was like oh my god are you Frank Gioia"},
-    {"start": 680, "end": 700, "text": "and I'm like yeah that's me and he's like can I get a photo and that's just so surreal to me because 30 years ago nobody wanted a photo with a mob guy"},
-    {"start": 700, "end": 720, "text": "but going back to the Brooklyn crew specifically there was one incident that really showed how brutal they could be and this is something that's never been told before"},
-    {"start": 720, "end": 745, "text": "there was a meeting called and everyone thought it was a regular sit-down but what nobody knew was that the boss had already made the decision someone at that table wasn't leaving"},
-    {"start": 745, "end": 770, "text": "and the way it went down was so cold so calculated that even the other guys at the table were shaken by it and these were hardened guys who had seen everything"},
-    {"start": 770, "end": 790, "text": "that's what separated the Brooklyn faction from the others they didn't do things half-hearted when they made a decision they followed through completely"},
-    {"start": 790, "end": 810, "text": "and the message it sent was clear if you cross us there's no conversation there's no second chance there's just consequences"},
-    {"start": 810, "end": 830, "text": "and that reputation is what kept people in line for decades because everyone knew the stories everyone knew what happened if you stepped out of line"},
-    {"start": 830, "end": 845, "text": "that's wild man I got chills just hearing that that's absolutely wild"},
-    {"start": 845, "end": 865, "text": "but you know what I think the most important thing people should understand is that this life it destroys everyone it touches not just the guys in it but their families their kids"},
-    {"start": 865, "end": 885, "text": "my kids grew up without a father my wife had to raise them alone and that's on me I can't blame anyone else for that choice"},
-    {"start": 885, "end": 905, "text": "so when kids come up to me and say they think the mob life is cool I tell them go talk to my daughter go ask her if she thinks it was cool growing up visiting her dad in prison"},
-    {"start": 905, "end": 925, "text": "that usually shuts them up pretty quick because the reality is nothing like what you see in the movies"},
-    {"start": 925, "end": 945, "text": "alright Frank this has been an incredible conversation thank you so much for sharing these stories with us really appreciate you being so open"},
-    {"start": 945, "end": 960, "text": "of course man I appreciate you having me on it's important that these stories get told so people understand what this life is really about"},
-    {"start": 960, "end": 980, "text": "guys that's going to do it for today's episode make sure you hit that subscribe button if you haven't already leave a comment down below let us know what you thought"},
-    {"start": 980, "end": 1000, "text": "and if you want to see more content like this check out our Patreon link in the description we've got exclusive episodes and behind the scenes content"},
-    {"start": 1000, "end": 1020, "text": "also follow us on Instagram and Twitter at the links below we post clips and updates about upcoming guests"},
-    {"start": 1020, "end": 1040, "text": "Frank where can people find you what are you working on these days where can they follow you"},
-    {"start": 1040, "end": 1055, "text": "you can find me on Instagram at Frank Gioia official and I've got a book coming out later this year so stay tuned for that"},
-    {"start": 1055, "end": 1064, "text": "[Music]"}
-  ],
+  "video_duration_seconds": 877,
+  "notes": "Labels refined after examining real YouTube transcript. Video is 877s (14:37), not 1064s. Previous labels beyond 877s removed. Disputed ranges verified against actual content.",
 
   "human_labels": [
     {
@@ -90,9 +29,9 @@
     {
       "start": 108,
       "end": 170,
-      "expected_category": "substance",
-      "expected_confidence_range": [0, 25],
-      "notes": "Frank explaining network reach and hierarchy — core topic"
+      "expected_category": "cohost_echo",
+      "expected_confidence_range": [80, 95],
+      "notes": "Co-host rephrasing — AI correctly identified this as echo, not substance"
     },
     {
       "start": 142,
@@ -110,17 +49,24 @@
     },
     {
       "start": 188,
+      "end": 245,
+      "expected_category": "substance",
+      "expected_confidence_range": [0, 20],
+      "notes": "Primary speaker content — Frank detailing the initiation process"
+    },
+    {
+      "start": 245,
+      "end": 296,
+      "expected_category": "cohost_echo",
+      "expected_confidence_range": [80, 95],
+      "notes": "Co-host asking vague questions — not advancing the topic substantively"
+    },
+    {
+      "start": 296,
       "end": 320,
       "expected_category": "substance",
       "expected_confidence_range": [0, 20],
-      "notes": "Frank detailing the initiation process — peak content, never-told-before stories"
-    },
-    {
-      "start": 250,
-      "end": 265,
-      "expected_category": "cohost_echo",
-      "expected_confidence_range": [85, 95],
-      "notes": "Co-host: 'that's crazy man that's absolutely insane when you think about it' — pure reaction"
+      "notes": "Primary speaker explains blind trust concept"
     },
     {
       "start": 320,
@@ -131,17 +77,24 @@
     },
     {
       "start": 340,
-      "end": 398,
+      "end": 365,
       "expected_category": "substance",
       "expected_confidence_range": [0, 25],
-      "notes": "Frank describing prison life for a made member — on-topic, unique stories"
+      "notes": "Primary speaker on the catch-22 of mob life"
+    },
+    {
+      "start": 365,
+      "end": 397,
+      "expected_category": "context",
+      "expected_confidence_range": [30, 50],
+      "notes": "Mixed content — Frank on Brooklyn crew composition with co-host interjections ('Oh is that right?', 'I didn't know that', 'Wow'). AI scored 38 (context) which is reasonable."
     },
     {
       "start": 398,
       "end": 432,
-      "expected_category": "self_promo",
-      "expected_confidence_range": [90, 100],
-      "notes": "Subscribe plea, merch plug, bell notification — textbook self-promo woffle"
+      "expected_category": "substance",
+      "expected_confidence_range": [0, 20],
+      "notes": "About blind trust and being tested — core topic content"
     },
     {
       "start": 432,
@@ -168,92 +121,71 @@
       "start": 530,
       "end": 610,
       "expected_category": "substance",
-      "expected_confidence_range": [0, 25],
-      "notes": "Frank on conditional loyalty, helping kids, the truth about mob life — powerful substance"
+      "expected_confidence_range": [0, 30],
+      "notes": "Frank on Brooklyn crew as stone cold killers, their reputation — core topic. Contains brief co-host reactions (Hm, Yeah, Right) but primarily substance."
     },
     {
       "start": 610,
       "end": 660,
-      "expected_category": "tangent",
-      "expected_confidence_range": [50, 80],
-      "notes": "Frank drifts to neighbourhood changes, grandmother's pasta, Sunday dinners — personal nostalgia tangent, not about Brooklyn crew specifically"
+      "expected_category": "substance",
+      "expected_confidence_range": [0, 20],
+      "notes": "Brooklyn crew dynamics — discussing Vic, Gas, drug dealing, earning capacity. Core topic."
     },
     {
       "start": 660,
       "end": 700,
-      "expected_category": "tangent",
-      "expected_confidence_range": [65, 85],
-      "notes": "Restaurant story about being recognised — entertaining but off-topic personal anecdote"
+      "expected_category": "substance",
+      "expected_confidence_range": [0, 20],
+      "notes": "Still discussing crew dynamics — getting inside track on Vicamuso. On-topic."
     },
     {
       "start": 700,
       "end": 830,
       "expected_category": "substance",
-      "expected_confidence_range": [0, 20],
-      "notes": "Return to core topic — never-before-told meeting story, Brooklyn faction's brutality, reputation — peak content"
+      "expected_confidence_range": [0, 25],
+      "notes": "Petraelli story — harboring a fugitive, boss orders the hit, moral dilemma. Core narrative with co-host engaging substantively at 13:33 ('But here's what confuses me, Sunny')."
     },
     {
       "start": 830,
       "end": 845,
       "expected_category": "cohost_echo",
       "expected_confidence_range": [85, 95],
-      "notes": "Co-host: 'that's wild man I got chills just hearing that' — pure reaction"
+      "notes": "Co-host reaction — pure echo"
     },
     {
       "start": 845,
-      "end": 925,
+      "end": 870,
       "expected_category": "substance",
-      "expected_confidence_range": [0, 30],
-      "notes": "Frank reflecting on the impact on families, his daughter, the reality vs movies — core message"
+      "expected_confidence_range": [0, 20],
+      "notes": "Final substance — why didn't Petraelli do it himself? Core question about the topic."
     },
     {
-      "start": 925,
-      "end": 960,
-      "expected_category": "pleasantries",
-      "expected_confidence_range": [75, 92],
-      "notes": "Wrapping up, thank yous, mutual appreciation — generic outro pleasantries"
-    },
-    {
-      "start": 960,
-      "end": 1020,
-      "expected_category": "self_promo",
-      "expected_confidence_range": [92, 100],
-      "notes": "Subscribe, Patreon, Instagram, Twitter plugs — pure self-promotion"
-    },
-    {
-      "start": 1020,
-      "end": 1055,
-      "expected_category": "self_promo",
-      "expected_confidence_range": [75, 92],
-      "notes": "Guest plug — Frank's Instagram and book promotion. Borderline self_promo/substance (viewers may want this)"
-    },
-    {
-      "start": 1055,
-      "end": 1064,
+      "start": 870,
+      "end": 877,
       "expected_category": "intro_outro",
       "expected_confidence_range": [85, 100],
-      "notes": "Outro music, no speech"
+      "notes": "Outro music"
     }
   ],
 
   "expected_intensity_results": {
     "light": {
-      "min_woffle_segments": 4,
-      "max_woffle_segments": 8,
-      "min_time_saved_seconds": 80,
-      "max_time_saved_seconds": 160
+      "min_woffle_segments": 18,
+      "max_woffle_segments": 28,
+      "min_time_saved_seconds": 280,
+      "max_time_saved_seconds": 450
     },
     "medium": {
-      "min_woffle_segments": 8,
-      "max_woffle_segments": 14,
-      "min_time_saved_seconds": 150,
-      "max_time_saved_seconds": 280
+      "min_woffle_segments": 22,
+      "max_woffle_segments": 32,
+      "min_time_saved_seconds": 350,
+      "max_time_saved_seconds": 520
     },
     "heavy": {
-      "min_woffle_segments": 12,
-      "max_woffle_segments": 20,
-      "min_time_saved_seconds": 220,
-      "max_time_saved_seconds": 400
+      "min_woffle_segments": 30,
+      "max_woffle_segments": 45,
+      "min_time_saved_seconds": 500,
+      "max_time_saved_seconds": 750
     }
   }
 }

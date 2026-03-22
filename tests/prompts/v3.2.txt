@@ -4,26 +4,24 @@ STEP 1: Read the video title and full transcript. Identify the VIDEO TOPIC in on
 
 STEP 2: Identify SPEAKERS. The transcript uses >> to indicate speaker changes. Determine who the PRIMARY speaker is (the guest, expert, storyteller, or person being interviewed). Everyone else is a secondary speaker (co-host, interviewer). Track speaker changes throughout — every time >> appears, evaluate whether the new speaker is adding substance or just reacting/echoing.
 
-STEP 3: Create GRANULAR segments. Target 10-45 seconds per segment. A 17-minute video should have at LEAST 30 segments. A 10-minute video should have at least 20. Co-host interjections (even 5-second reactions like "wow yeah that's crazy") MUST be their own segments — NEVER merge a co-host reaction into the primary speaker's content block. Each segment should be one coherent unit: a single reaction, a single point, a sponsor read, a greeting, etc.
+STEP 3: Create GRANULAR segments. For every 5 minutes of video, produce at least 15 segments but no more than 30. A 17-minute video should have 50-100 segments. Do NOT create segments shorter than 5 seconds unless it's a standalone co-host interjection. Co-host interjections (even 5-second reactions like "wow yeah that's crazy") MUST be their own segments — NEVER merge a co-host reaction into the primary speaker's content block. Each segment should be one coherent unit: a single reaction, a single point, a sponsor read, a greeting, etc.
 
-STEP 4: Score each segment's woffle_confidence (0-100). Use the FULL range — not everything is 5-15.
+STEP 4: Score each segment's woffle_confidence (0-100).
 
-SCORE CALIBRATION (use these as anchors):
-  95 → Music intro/outro with no speech
-  95 → "Like and subscribe, hit the bell"
-  95 → Sponsor read or paid promotion
-  92 → Patreon, merch, social media plugs
-  88 → Co-host saying "wow" / "yeah" / "that's crazy" / "right right"
-  85 → Co-host rephrasing what was just said without new info
-  85 → Generic pleasantries: "hope you're doing well", weather chat
-  75 → Repetition of a point already made
-  60 → Host going off on a personal tangent unrelated to the topic
-  55 → Off-topic digression that eventually circles back
-  45 → Extended background context that could be shorter
-  35 → Host providing necessary background context
-  12 → Host telling a directly relevant story
-   5 → Host explaining the core topic
-   3 → Key stories/anecdotes that ARE the content viewers came for
+CALIBRATION — use these as reference points:
+  Score 95: [Music] intro, "like and subscribe", sponsor read
+  Score 88: Co-host says "wow" / "yeah" / "that's crazy" (under 10 seconds, no new info)
+  Score 85: Co-host rephrases what primary speaker just said
+  Score 75: Host going off on a personal tangent unrelated to the video topic
+  Score 65: Defensive aside ("I don't want people to think I'm glamorising...")
+  Score 55: Extended example that repeats a point already made
+  Score 45: Background context that SOME viewers find useful
+  Score 35: Setup/preamble that leads directly into a key point
+  Score 25: On-topic but slow/verbose delivery of relevant information
+  Score 12: Primary speaker telling a relevant story
+  Score 5: Core explanation of the video topic
+
+CRITICAL: You MUST use the full 0-100 range. If your output has no scores between 25-75, you have FAILED. Re-examine borderline segments: tangentially related anecdotes (55-65), defensive asides (60-75), slow context-setting (30-45), verbose but on-topic delivery (20-35). At least 20% of segments should score 25-75.
 
 SCORE RANGES:
 
@@ -38,26 +36,28 @@ SCORE RANGES:
 - Generic pleasantries: "hope you're having a great day", weather chat, "how's everyone doing"
 - Personal life updates unrelated to topic: what they ate, their commute, weekend plans
 - "Before we get into it..." padding that doesn't get into anything
-- Repetition of something already covered (same point rephrased)
-- Thanking other creators, shoutouts unrelated to content
 - Co-host reactions that add nothing: "wow", "that's crazy", "yeah totally", "right right right"
 - Co-host echoing/rephrasing what the main speaker just said without new information
-- Co-host tangents and musings that nobody came to hear
 
 70-84 PROBABLE WOFFLE:
+- Repetition of something already covered (same point rephrased)
 - Personal anecdotes entertaining but not advancing the topic
-- Extended examples repeating a point already made
 - Off-topic digressions that eventually circle back
 - Overly long context-setting that could be 80% shorter
+- Thanking other creators, shoutouts unrelated to content
 
 50-69 BORDERLINE:
 - Background context some viewers want, others don't
+- Defensive asides and disclaimers
 - Stories illustrating the point but taking too long
 - Slow introductions of people/concepts needed later
+- Extended examples that repeat a point already made
 
 25-49 MOSTLY SUBSTANCE:
 - On-topic but slightly verbose or meandering
 - Good content with minor padding
+- Setup/preamble leading into a key point
+- Background context necessary for understanding
 
 0-24 PURE SUBSTANCE:
 - Core content directly about the video topic
@@ -77,8 +77,6 @@ CRITICAL RULES:
 - A typical 10-minute video has 2-4 minutes of woffle. If you find zero, you're too lenient.
 - Every second of the video must be covered — no gaps between segments.
 - Only merge adjacent segments if they have the SAME category AND scores within 10 points. NEVER merge a co-host reaction into a substance block.
-- Minimum segment count: aim for at least 2 segments per minute of video. A 10-minute video needs at least 20 segments.
-- If your output has fewer than 15 segments for a 10+ minute video, you are merging too aggressively. Break it up.
 
 Classify each segment's category (exactly one):
 - "sponsor" — paid promotion or ad read

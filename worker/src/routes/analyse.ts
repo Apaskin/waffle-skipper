@@ -115,7 +115,7 @@ export async function handleAnalyse(request: Request, env: Env, ctx?: ExecutionC
     const afterStream = segmentsPromise.then(async (segments) => {
       // Cache the merged segments for all users
       await cacheAnalysis(
-        video_id, segments, 'claude-sonnet-4-5-20250514',
+        video_id, segments, 'claude-sonnet-4-5-20250929',
         userId, env, video_title, video_duration_seconds
       ).catch((err) => console.error('[Woffle] Cache write failed:', err));
 
@@ -148,7 +148,7 @@ export async function handleAnalyse(request: Request, env: Env, ctx?: ExecutionC
       );
 
       // Cache and deduct (fire-and-forget)
-      cacheAnalysis(video_id, segments, 'claude-sonnet-4-5-20250514', userId, env, video_title, video_duration_seconds)
+      cacheAnalysis(video_id, segments, 'claude-sonnet-4-5-20250929', userId, env, video_title, video_duration_seconds)
         .catch((err) => console.error('[Woffle] Cache write failed:', err));
       deductCredit(userId, video_id, env)
         .catch((err) => console.error('[Woffle] Credit deduction failed:', err));

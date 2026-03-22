@@ -24,6 +24,12 @@ const path = require('path');
 // ============================================================
 
 const API_KEY = process.env.ANTHROPIC_API_KEY;
+// User-Agent that closely resembles a real Chrome browser — needed so YouTube
+// doesn't reject the watch page fetch with a 429 or bot-detection redirect.
+const YT_FETCH_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Accept-Language': 'en-US,en;q=0.9',
+};
 const MODEL = process.env.SONNET_MODEL || 'claude-sonnet-4-5-20250929';
 const API_URL = 'https://api.anthropic.com/v1/messages';
 const API_VERSION = '2023-06-01';
@@ -84,6 +90,329 @@ function findBestOverlap(humanSeg, aiSegments) {
 }
 
 // ============================================================
+// YouTube transcript fetching
+// ============================================================
+// Mirrors the logic in background.js — same multi-strategy approach:
+//   1. Parse captionTracks from ytInitialPlayerResponse in watch page HTML
+//   2. Innertube API fallback with known key candidates
+// Converts raw timedtext events → [{start, end, text}] chunks for the AI.
+
+const YT_INNERTUBE_API_KEY_CANDIDATES = [
+  'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8',
+];
+
+function buildTimedtextCandidateUrls(baseUrl) {
+  if (!baseUrl) return [];
+  const urls = [baseUrl];
+  const json3Url = baseUrl.includes('fmt=')
+    ? baseUrl.replace(/([?&])fmt=[^&]*/i, '$1fmt=json3')
+    : `${baseUrl}&fmt=json3`;
+  if (json3Url !== baseUrl) urls.push(json3Url);
+  return [...new Set(urls)];
+}
+
+function decodeXmlEntities(text) {
+  return text
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+function parseXmlTimedtext(xmlText) {
+  const events = [];
+  const collectEvents = (regex, startAttr, durAttr, isMs) => {
+    let match;
+    while ((match = regex.exec(xmlText)) !== null) {
+      const attrs = match[1] || '';
+      const body = (match[2] || '').replace(/<[^>]+>/g, '');
+      const startMatch = attrs.match(new RegExp(`${startAttr}="([^"]+)"`));
+      const durMatch = attrs.match(new RegExp(`${durAttr}="([^"]+)"`));
+      if (!startMatch) continue;
+      const startRaw = parseFloat(startMatch[1] || '0');
+      const durRaw = parseFloat(durMatch ? durMatch[1] : '0');
+      const startMs = isMs ? Math.round(startRaw) : Math.round(startRaw * 1000);
+      const durationMs = isMs ? Math.round(durRaw) : Math.round(durRaw * 1000);
+      const cleanText = decodeXmlEntities(body).trim();
+      if (!cleanText) continue;
+      events.push({ tStartMs: startMs, dDurationMs: durationMs, segs: [{ utf8: cleanText }] });
+    }
+  };
+  collectEvents(/<text\b([^>]*)>([\s\S]*?)<\/text>/gi, 'start', 'dur', false);
+  collectEvents(/<p\b([^>]*)>([\s\S]*?)<\/p>/gi, 't', 'd', true);
+  return events.length > 0 ? { events } : null;
+}
+
+function parseTimedtextResponse(rawText) {
+  const text = (rawText || '').trim();
+  if (!text) return null;
+  try {
+    const json = JSON.parse(text);
+    if (json && Array.isArray(json.events) && json.events.length > 0) return json;
+  } catch (err) {}
+  if (text.startsWith('<')) return parseXmlTimedtext(text);
+  return null;
+}
+
+function extractCaptionTracksFromWatchHtml(pageHtml) {
+  const captionIdx = pageHtml.indexOf('"captionTracks":');
+  if (captionIdx === -1) return [];
+  const bracketStart = pageHtml.indexOf('[', captionIdx);
+  if (bracketStart === -1 || bracketStart - captionIdx > 40) return [];
+  let depth = 0;
+  let bracketEnd = -1;
+  for (let i = bracketStart; i < pageHtml.length && i < bracketStart + 50000; i++) {
+    if (pageHtml[i] === '[') depth++;
+    if (pageHtml[i] === ']') { depth--; if (depth === 0) { bracketEnd = i + 1; break; } }
+  }
+  if (bracketEnd === -1) return [];
+  try {
+    const tracks = JSON.parse(pageHtml.substring(bracketStart, bracketEnd));
+    return Array.isArray(tracks) ? tracks : [];
+  } catch (err) { return []; }
+}
+
+function selectBestTrack(tracks) {
+  if (!Array.isArray(tracks) || tracks.length === 0) return null;
+  return tracks.find(t => t.languageCode === 'en')
+    || tracks.find(t => t.languageCode && t.languageCode.startsWith('en'))
+    || null;
+}
+
+function hasOnlyNonEnglishTracks(tracks) {
+  if (!Array.isArray(tracks) || tracks.length === 0) return false;
+  return selectBestTrack(tracks) === null;
+}
+
+async function fetchTimedtextFromTrack(track) {
+  if (!track || !track.baseUrl) return null;
+  const candidateUrls = buildTimedtextCandidateUrls(track.baseUrl);
+  for (const trackUrl of candidateUrls) {
+    try {
+      const response = await fetch(trackUrl, { headers: YT_FETCH_HEADERS });
+      if (!response.ok) continue;
+      const raw = await response.text();
+      const parsed = parseTimedtextResponse(raw);
+      if (parsed?.events?.length) return parsed;
+    } catch (err) { continue; }
+  }
+  return null;
+}
+
+function extractInnertubeApiKeyFromWatchHtml(pageHtml) {
+  const match = pageHtml.match(/"INNERTUBE_API_KEY"\s*:\s*"([^"]+)"/);
+  return match ? match[1] : null;
+}
+
+async function fetchCaptionTracksViaInnertubePlayer(videoId, apiKey) {
+  if (!videoId || !apiKey) return [];
+  const requestVariants = [
+    {
+      headers: { 'Content-Type': 'application/json', 'X-YouTube-Client-Name': '3', 'X-YouTube-Client-Version': '20.10.38', ...YT_FETCH_HEADERS },
+      body: { context: { client: { clientName: 'ANDROID', clientVersion: '20.10.38' } }, videoId },
+    },
+    {
+      headers: { 'Content-Type': 'application/json', 'X-YouTube-Client-Name': '1', 'X-YouTube-Client-Version': '2.20260317.01.00', ...YT_FETCH_HEADERS },
+      body: { context: { client: { clientName: 'WEB', clientVersion: '2.20260317.01.00', hl: 'en' } }, videoId },
+    },
+  ];
+  for (const variant of requestVariants) {
+    try {
+      const response = await fetch(
+        `https://www.youtube.com/youtubei/v1/player?key=${apiKey}`,
+        { method: 'POST', headers: variant.headers, body: JSON.stringify(variant.body) }
+      );
+      if (!response.ok) continue;
+      const data = await response.json();
+      const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+      if (Array.isArray(tracks) && tracks.length > 0) return tracks;
+    } catch (err) { continue; }
+  }
+  return [];
+}
+
+async function fetchTimedtextViaInnertubeFallback(videoId, pageHtml) {
+  const htmlKey = extractInnertubeApiKeyFromWatchHtml(pageHtml || '');
+  const keyCandidates = [...new Set([htmlKey, ...YT_INNERTUBE_API_KEY_CANDIDATES].filter(Boolean))];
+  let foundNonEnglishOnly = false;
+  for (const key of keyCandidates) {
+    try {
+      const tracks = await fetchCaptionTracksViaInnertubePlayer(videoId, key);
+      if (hasOnlyNonEnglishTracks(tracks)) { foundNonEnglishOnly = true; continue; }
+      const track = selectBestTrack(tracks);
+      if (!track) continue;
+      const data = await fetchTimedtextFromTrack(track);
+      if (data?.events?.length) return { data, foundNonEnglishOnly: false };
+    } catch (err) { /* try next */ }
+  }
+  return { data: null, foundNonEnglishOnly };
+}
+
+// Converts raw timedtext events (from YouTube) into [{start, end, text}] chunks
+// using the same grouping logic as background.js chunkTranscript().
+function timedtextToChunks(timedTextData) {
+  const events = timedTextData.events || [];
+  const TARGET_SEGMENT_SEC = 4;
+  const MIN_SEGMENT_SEC = 1.2;
+  const MAX_SEGMENT_SEC = 8;
+  const MAX_TEXT_CHARS = 320;
+  const chunks = [];
+  const normalizedEvents = [];
+  const uniqueStarts = new Set();
+  const rawStartMsValues = [];
+  const rawDurationMsValues = [];
+  let lastEndSec = 0;
+
+  function median(values) {
+    if (!values || values.length === 0) return NaN;
+    const sorted = [...values].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+  }
+
+  function inferMsFieldDivisor(rawStarts, rawDurations, eventCount) {
+    if (!rawStarts.length) return { divisor: 1000 };
+    const maxStart = rawStarts.reduce((max, v) => (v > max ? v : max), 0);
+    const positiveDurations = rawDurations.filter(v => Number.isFinite(v) && v > 0);
+    const medianDuration = median(positiveDurations);
+    const assumedMsDurationSec = maxStart / 1000;
+    let divisor = 1000;
+    if (maxStart > 120000) divisor = 1000;
+    else if (Number.isFinite(medianDuration) && medianDuration > 0 && medianDuration < 30) divisor = 1;
+    else if (assumedMsDurationSec < 30 && eventCount > 60) divisor = 1;
+    else if (assumedMsDurationSec < 90 && eventCount > 200) divisor = 1;
+    else if (maxStart <= 7200 && eventCount > 20) divisor = 1;
+    return { divisor };
+  }
+
+  for (const event of events) {
+    if (!event || !event.segs) continue;
+    const eventText = event.segs.map(s => s.utf8 || '').join('').trim();
+    if (!eventText) continue;
+    const rawStart = Number(event.tStartMs);
+    if (Number.isFinite(rawStart) && rawStart >= 0) rawStartMsValues.push(rawStart);
+    const rawDuration = Number(event.dDurationMs);
+    if (Number.isFinite(rawDuration) && rawDuration >= 0) rawDurationMsValues.push(rawDuration);
+  }
+
+  const { divisor: msFieldDivisor } = inferMsFieldDivisor(rawStartMsValues, rawDurationMsValues, rawStartMsValues.length);
+
+  for (const event of events) {
+    if (!event || !event.segs) continue;
+    const eventText = event.segs.map(s => s.utf8 || '').join('').replace(/\s+/g, ' ').trim();
+    if (!eventText) continue;
+    let startSec = NaN;
+    const rawStartMs = Number(event.tStartMs);
+    if (Number.isFinite(rawStartMs)) startSec = rawStartMs / msFieldDivisor;
+    if (!Number.isFinite(startSec)) startSec = lastEndSec;
+    let durationSec = NaN;
+    const rawDurationMs = Number(event.dDurationMs);
+    if (Number.isFinite(rawDurationMs)) durationSec = rawDurationMs / msFieldDivisor;
+    if (!Number.isFinite(durationSec) || durationSec < 0) durationSec = 0;
+    const endSec = Math.max(startSec + durationSec, startSec);
+    normalizedEvents.push({ startSec, endSec, text: eventText });
+    uniqueStarts.add(Math.round(startSec * 10));
+    lastEndSec = Math.max(lastEndSec, endSec);
+  }
+
+  if (normalizedEvents.length === 0) return [];
+
+  if (uniqueStarts.size <= 1 && normalizedEvents.length > 10) {
+    let syntheticSec = 0;
+    for (const event of normalizedEvents) {
+      const wordCount = event.text.split(/\s+/).filter(Boolean).length;
+      const estimatedDuration = Math.min(Math.max(wordCount / 2.5, 1.2), 8);
+      event.startSec = syntheticSec;
+      event.endSec = syntheticSec + estimatedDuration;
+      syntheticSec = event.endSec;
+    }
+  }
+
+  normalizedEvents.sort((a, b) => a.startSec - b.startSec);
+  let currentChunk = null;
+
+  function flushChunk() {
+    if (!currentChunk || !currentChunk.text.trim()) { currentChunk = null; return; }
+    const safeEnd = Math.max(currentChunk.endSec, currentChunk.startSec + MIN_SEGMENT_SEC);
+    chunks.push({
+      start: Math.max(0, currentChunk.startSec),
+      end: Math.max(currentChunk.startSec + MIN_SEGMENT_SEC, safeEnd),
+      text: currentChunk.text.trim(),
+    });
+    currentChunk = null;
+  }
+
+  for (const event of normalizedEvents) {
+    if (!currentChunk) {
+      currentChunk = { startSec: event.startSec, endSec: Math.max(event.endSec, event.startSec + 0.5), text: event.text };
+      continue;
+    }
+    const gapSec = Math.max(0, event.startSec - currentChunk.endSec);
+    const currentDuration = currentChunk.endSec - currentChunk.startSec;
+    if (gapSec > 3.5 || currentDuration >= MAX_SEGMENT_SEC || currentChunk.text.length >= MAX_TEXT_CHARS) {
+      flushChunk();
+    }
+    if (!currentChunk) {
+      currentChunk = { startSec: event.startSec, endSec: Math.max(event.endSec, event.startSec + 0.5), text: event.text };
+    } else {
+      currentChunk.endSec = Math.max(currentChunk.endSec, event.endSec);
+      currentChunk.text += ' ' + event.text;
+    }
+  }
+  flushChunk();
+
+  return chunks;
+}
+
+// Top-level function called by runTestCase().
+// Returns [{start, end, text}] or throws on failure.
+async function fetchYouTubeTranscript(videoId) {
+  if (!videoId || videoId === 'REPLACE_WITH_REAL_VIDEO_ID') {
+    throw new Error('No valid video_id in test data');
+  }
+
+  process.stdout.write(`  Fetching transcript for ${videoId}...`);
+
+  // Step 1: fetch the YouTube watch page
+  let pageHtml = '';
+  try {
+    const pageRes = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
+      headers: YT_FETCH_HEADERS,
+    });
+    if (pageRes.ok) pageHtml = await pageRes.text();
+  } catch (err) { /* will try innertube fallback */ }
+
+  // Step 2: extract captionTracks from page HTML
+  if (pageHtml) {
+    const htmlTracks = extractCaptionTracksFromWatchHtml(pageHtml);
+    if (!hasOnlyNonEnglishTracks(htmlTracks)) {
+      const track = selectBestTrack(htmlTracks);
+      if (track) {
+        const data = await fetchTimedtextFromTrack(track);
+        if (data?.events?.length) {
+          const chunks = timedtextToChunks(data);
+          process.stdout.write(` OK (${chunks.length} chunks via HTML)\n`);
+          return chunks;
+        }
+      }
+    }
+  }
+
+  // Step 3: Innertube fallback
+  const fallback = await fetchTimedtextViaInnertubeFallback(videoId, pageHtml);
+  if (fallback.data?.events?.length) {
+    const chunks = timedtextToChunks(fallback.data);
+    process.stdout.write(` OK (${chunks.length} chunks via Innertube)\n`);
+    return chunks;
+  }
+
+  process.stdout.write(' FAILED\n');
+  if (fallback.foundNonEnglishOnly) throw new Error('No English captions available');
+  throw new Error('No captions found for this video');
+}
+
+// ============================================================
 // Prompt loading
 // ============================================================
 // If PROMPT_FILE is set, read that file. Otherwise use the hardcoded
@@ -132,7 +461,7 @@ async function classifyTranscript(transcript, videoTitle, systemPrompt) {
     },
     body: JSON.stringify({
       model: MODEL,
-      max_tokens: 4096,
+      max_tokens: 8192,
       system: systemPrompt,
       messages: [{ role: 'user', content: userMessage }],
     }),
@@ -152,15 +481,12 @@ async function classifyTranscript(transcript, videoTitle, systemPrompt) {
 
   if (!text) throw new Error('Empty API response');
 
-  // Parse — same logic as background.js parseFinal()
-  const cleaned = text
-    .replace(/^```json\s*/i, '')
-    .replace(/^```\s*/i, '')
-    .replace(/\s*```$/, '')
-    .trim();
+  // Debug: show what the AI actually returned before we try to parse
+  console.log(`  RAW RESPONSE (first 500 chars):\n  ${text.substring(0, 500)}`);
+  if (text.length > 500) console.log(`  ... (${text.length} total chars)`);
 
-  try {
-    const parsed = JSON.parse(cleaned);
+  // Helper to build the result object from a parsed JSON structure
+  function buildResult(parsed) {
     return {
       video_topic: parsed.video_topic || '',
       segments: (parsed.segments || []).map(item => ({
@@ -171,22 +497,88 @@ async function classifyTranscript(transcript, videoTitle, systemPrompt) {
         label: String(item.label || ''),
       })),
     };
-  } catch {
-    // Try regex extraction as fallback
-    const arrayMatch = cleaned.match(/\[[\s\S]*\]/);
-    if (!arrayMatch) throw new Error('Could not parse API response as JSON');
-    const segments = JSON.parse(arrayMatch[0]);
-    return {
-      video_topic: '',
-      segments: segments.map(item => ({
-        start: Number(item.start) || 0,
-        end: Number(item.end) || 0,
-        woffle_confidence: Math.min(100, Math.max(0, Number(item.woffle_confidence) || 0)),
-        category: String(item.category || 'substance'),
-        label: String(item.label || ''),
-      })),
-    };
   }
+
+  // Strip markdown code fences and any preamble text
+  const cleaned = text
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/\s*```$/gm, '')
+    .trim();
+
+  // Attempt 1: direct parse
+  try {
+    return buildResult(JSON.parse(cleaned));
+  } catch (err1) {
+    console.log(`  JSON.parse failed: ${err1.message}`);
+  }
+
+  // Attempt 2: find first { or [ and parse from there (skips any preamble text)
+  const firstBrace = cleaned.indexOf('{');
+  const firstBracket = cleaned.indexOf('[');
+  const candidates = [firstBrace, firstBracket].filter(i => i >= 0);
+  if (candidates.length > 0) {
+    const startIdx = Math.min(...candidates);
+    const jsonCandidate = cleaned.substring(startIdx).replace(/\s*```$/gm, '').trim();
+    try {
+      const parsed = JSON.parse(jsonCandidate);
+      // If we got an object with segments, use it directly
+      if (parsed && parsed.segments) return buildResult(parsed);
+      // If we got a bare array, wrap it
+      if (Array.isArray(parsed)) return buildResult({ segments: parsed });
+    } catch (err2) {
+      console.log(`  Fallback parse from index ${startIdx} failed: ${err2.message}`);
+    }
+  }
+
+  // Attempt 3: regex extract the segments array
+  const arrayMatch = cleaned.match(/\[[\s\S]*\]/);
+  if (arrayMatch) {
+    try {
+      const segments = JSON.parse(arrayMatch[0]);
+      if (Array.isArray(segments)) return buildResult({ segments });
+    } catch (err3) {
+      console.log(`  Array regex parse failed: ${err3.message}`);
+    }
+  }
+
+  // Attempt 4: truncation recovery — if the response was cut off mid-JSON,
+  // find the last complete object in the segments array and close it out.
+  // Strip trailing incomplete object (anything after the last '}') then close.
+  const jsonStart = cleaned.indexOf('{');
+  if (jsonStart >= 0) {
+    let truncated = cleaned.substring(jsonStart);
+    // Remove any trailing partial object/value after the last complete '}'
+    const lastBrace = truncated.lastIndexOf('}');
+    if (lastBrace >= 0) {
+      truncated = truncated.substring(0, lastBrace + 1);
+      // Try closing with ]} to seal segments array + outer object
+      for (const suffix of [']}', ']}', ']}\n']) {
+        try {
+          const patched = truncated + suffix;
+          const parsed = JSON.parse(patched);
+          if (parsed && parsed.segments) {
+            console.log(`  Truncation recovery succeeded (${parsed.segments.length} segments salvaged)`);
+            return buildResult(parsed);
+          }
+        } catch { /* try next suffix */ }
+      }
+      // Also try just closing the array if we're inside the segments array
+      for (const suffix of [']', ']}']) {
+        try {
+          const patched = truncated + suffix;
+          const parsed = JSON.parse(patched);
+          if (Array.isArray(parsed)) {
+            console.log(`  Truncation recovery succeeded (${parsed.length} segments salvaged from array)`);
+            return buildResult({ segments: parsed });
+          }
+        } catch { /* try next */ }
+      }
+    }
+    console.log(`  Truncation recovery failed`);
+  }
+
+  throw new Error('Could not parse API response as JSON');
 }
 
 // ============================================================
@@ -307,7 +699,7 @@ function evaluateIntensityAccuracy(aiSegments, expectedIntensity) {
 // Report formatting
 // ============================================================
 
-function printEvalReport(testName, segResults, intensityResults, aiResult) {
+function printEvalReport(testName, segResults, intensityResults, aiResult, opts = {}) {
   const totalLabels = segResults.length;
   const catMatches = segResults.filter(r => r.categoryMatch).length;
   const confMatches = segResults.filter(r => r.confidenceInRange).length;
@@ -325,6 +717,26 @@ function printEvalReport(testName, segResults, intensityResults, aiResult) {
     console.log(`AI detected topic: "${aiResult.video_topic}"`);
   }
   console.log(`AI returned ${aiResult.segments.length} segments`);
+
+  // Score distribution — critical for verifying the AI uses the full 0-100 range
+  const bucket0  = aiResult.segments.filter(s => s.woffle_confidence <= 24).length;
+  const bucket25 = aiResult.segments.filter(s => s.woffle_confidence >= 25 && s.woffle_confidence <= 49).length;
+  const bucket50 = aiResult.segments.filter(s => s.woffle_confidence >= 50 && s.woffle_confidence <= 74).length;
+  const bucket75 = aiResult.segments.filter(s => s.woffle_confidence >= 75).length;
+  console.log(`SCORE DISTRIBUTION: 0-24: ${bucket0} | 25-49: ${bucket25} | 50-74: ${bucket50} | 75-100: ${bucket75}`);
+
+  // --verbose: dump all AI segments
+  if (opts.verbose) {
+    console.log('');
+    console.log('ALL AI SEGMENTS:');
+    for (const seg of aiResult.segments) {
+      const time = `[${fmtTime(seg.start)}-${fmtTime(seg.end)}]`;
+      const conf = String(seg.woffle_confidence).padStart(3);
+      const cat = seg.category.padEnd(13);
+      console.log(`  ${time} conf=${conf} ${cat} ${seg.label}`);
+    }
+  }
+
   console.log('');
 
   // Segment accuracy
@@ -400,30 +812,41 @@ function printEvalReport(testName, segResults, intensityResults, aiResult) {
 // Run a single test case
 // ============================================================
 
-async function runTestCase(filePath, systemPrompt) {
+async function runTestCase(filePath, systemPrompt, opts = {}) {
   const testName = path.basename(filePath, '.json');
   console.log(`\nRunning eval: ${testName}...`);
 
   const testData = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
 
-  // Validate test data structure
-  if (!testData.transcript || !Array.isArray(testData.transcript)) {
-    console.error(`  ERROR: ${testName} has no transcript array`);
-    return null;
-  }
   if (!testData.human_labels || !Array.isArray(testData.human_labels)) {
     console.error(`  ERROR: ${testName} has no human_labels array`);
     return null;
   }
 
+  // Fetch transcript live from YouTube (ignore any transcript array in the JSON)
+  let transcript;
+  try {
+    transcript = await fetchYouTubeTranscript(testData.video_id);
+  } catch (err) {
+    console.error(`  TRANSCRIPT FETCH FAILED: ${err.message} — skipping`);
+    return null;
+  }
+
+  // Show transcript preview so we can verify speaker markers etc.
+  if (opts.verbose) {
+    const preview = transcript
+      .map(c => `[${fmtTime(c.start)}] ${c.text}`)
+      .join('\n');
+    console.log('');
+    console.log('TRANSCRIPT PREVIEW (first 500 chars):');
+    console.log(preview.substring(0, 500));
+    console.log('...');
+  }
+
   // Call the API
   let aiResult;
   try {
-    aiResult = await classifyTranscript(
-      testData.transcript,
-      testData.video_title,
-      systemPrompt
-    );
+    aiResult = await classifyTranscript(transcript, testData.video_title, systemPrompt);
   } catch (err) {
     console.error(`  API ERROR: ${err.message}`);
     return null;
@@ -437,7 +860,7 @@ async function runTestCase(filePath, systemPrompt) {
   );
 
   // Print report
-  return printEvalReport(testName, segResults, intensityResults, aiResult);
+  return printEvalReport(testName, segResults, intensityResults, aiResult, opts);
 }
 
 // ============================================================
@@ -445,10 +868,17 @@ async function runTestCase(filePath, systemPrompt) {
 // ============================================================
 
 async function main() {
+  // Parse CLI args: positional test name + --verbose flag
+  const args = process.argv.slice(2);
+  const verbose = args.includes('--verbose');
+  const positionalArgs = args.filter(a => !a.startsWith('--'));
+  const specificTest = positionalArgs[0] || null;
+  const opts = { verbose };
+
   // Validate API key
   if (!API_KEY) {
     console.error('ERROR: Set ANTHROPIC_API_KEY environment variable');
-    console.error('Usage: ANTHROPIC_API_KEY=sk-ant-... node run-eval.js [test-name]');
+    console.error('Usage: ANTHROPIC_API_KEY=sk-ant-... node run-eval.js [test-name] [--verbose]');
     process.exit(1);
   }
 
@@ -457,7 +887,6 @@ async function main() {
 
   // Find test files
   const evalDir = path.join(__dirname, 'eval-data');
-  const specificTest = process.argv[2];
 
   let testFiles;
   if (specificTest) {
@@ -491,7 +920,7 @@ async function main() {
   // Run each test sequentially (to avoid rate limits)
   const summaries = [];
   for (const file of testFiles) {
-    const result = await runTestCase(file, systemPrompt);
+    const result = await runTestCase(file, systemPrompt, opts);
     if (result) summaries.push(result);
 
     // Small delay between API calls to be respectful of rate limits
