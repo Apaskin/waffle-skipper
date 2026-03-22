@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Woffle",
   "version": "0.5.0",
-  "description": "Skip the woffle in YouTube videos 🧇",
+  "description": "Skip the fluff. Get the stuff. AI-powered woffle detection for YouTube.",
   "permissions": ["storage"],
   "host_permissions": [
     "https://www.youtube.com/*",

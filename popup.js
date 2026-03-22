@@ -73,7 +73,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     }
   } catch (err) {
-    console.log('[Woffle] Could not fetch usage state:', err.message);
+    // Could not fetch usage state — silently skip the usage section
   }
 
   // ============================================================
@@ -133,7 +133,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           if (status) updateStats(status);
         }
       } catch (err) {
-        console.log('[Woffle] Could not update intensity on content script:', err.message);
+        // Could not update intensity on content script — intensity is still saved to storage
       }
     });
   });
@@ -259,7 +259,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     updateStats(status);
 
   } catch (err) {
-    console.log('[Woffle] Could not connect to content script:', err.message);
+    // Could not connect to content script — likely no YouTube tab active
     document.getElementById('video-title').textContent = 'LOADING...';
     document.getElementById('analysis-status').textContent = 'Refresh the YouTube page';
   }

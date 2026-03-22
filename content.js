@@ -72,8 +72,6 @@
   let latestTranscriptData = null;
   let latestTranscriptVideoId = null;
 
-  console.log('[Woffle] Content script loaded');
-
   // ============================================================
   // Font injection — @font-face cannot use relative paths in a
   // content-script stylesheet (they would resolve against youtube.com).
@@ -161,7 +159,6 @@
       // sending this message. Writing here would trigger storage.onChanged, which
       // calls applyIntensity() again, causing a double re-render.
       const intensity = message.intensity || 'medium';
-      console.log(`[Woffle] SET_INTENSITY received: ${intensity} (segments: ${segments.length})`);
       try {
         applyIntensity(intensity);
       } catch (e) {
@@ -208,9 +205,6 @@
     if (event.origin !== 'https://www.youtube.com') return;
     if (event.data && event.data.source === 'waffle-skipper-extractor') {
       const hasTranscript = event.data.transcript && event.data.transcript.events;
-      console.log('[Woffle] Received from extractor:',
-        hasTranscript ? event.data.transcript.events.length + ' events' : 'no transcript',
-        event.data.method || '', event.data.videoId || '');
 
       // Store latest transcript data (may arrive unprompted via XHR intercept)
       if (hasTranscript && event.data.videoId) {
@@ -220,7 +214,6 @@
         // If transcript arrives after analysis gave up (YouTube loads captions late),
         // and this is still the current video, auto-trigger analysis
         if (event.data.videoId === currentVideoId && !isAnalyzing && segments.length === 0 && analysisError) {
-          console.log('[Woffle] Late transcript arrived! Re-triggering analysis...');
           analyzeVideo(currentVideoId);
         }
       }
@@ -238,7 +231,6 @@
     return new Promise((resolve) => {
       // Check if we already have data for this video (arrived via XHR intercept)
       if (latestTranscriptVideoId === videoId && latestTranscriptData) {
-        console.log('[Woffle] Using already-captured transcript for', videoId);
         resolve({ transcript: latestTranscriptData, tracks: [], videoId: videoId });
         return;
       }
@@ -290,7 +282,6 @@
       return; // Same video, nothing to do
     }
 
-    console.log(`[Woffle] New video detected: ${videoId}`);
     currentVideoId = videoId;
 
     // Clean up previous video's UI
@@ -343,19 +334,17 @@
 
         if (data.transcript && data.transcript.events && data.transcript.events.length > 0) {
           transcriptData = data.transcript;
-          console.log(`[Woffle] Got transcript (attempt ${attempt}): ${transcriptData.events.length} events`);
           break;
         }
 
         if (attempt < 6) {
           const delay = attempt * 1500;
-          console.log(`[Woffle] No transcript yet (attempt ${attempt}), retrying in ${delay/1000}s...`);
           await new Promise(r => setTimeout(r, delay));
         }
       }
 
       if (!transcriptData) {
-        console.warn('[Woffle] No transcript captured from page extractor; trying background fallback');
+        // No transcript from page extractor — background will attempt its own fetch
       }
 
       // Grab the video title for topic identification
@@ -384,7 +373,6 @@
       }
 
       // result.status === 'scanning' — results will arrive via messages
-      console.log(`[Woffle] Analysis started for ${videoId} — awaiting streaming results`);
       updateScanButtonState();
 
     } catch (err) {
@@ -405,8 +393,6 @@
     const { introEndsAt, introType, topicStarts } = message;
 
     if (!introEndsAt || introEndsAt <= 0) return;
-
-    console.log(`[Woffle] Quick scan: intro ends at ${introEndsAt}s (${introType})`);
 
     // Create a temporary intro segment on the timeline
     const introSegment = {
@@ -431,7 +417,6 @@
       wafflesZapped++;
       timeSavedSec += introEndsAt;
       showSkipNotification(introEndsAt);
-      console.log(`[Woffle] Skipped ${Math.round(introEndsAt)}s intro`);
     }
   }
 
@@ -463,21 +448,6 @@
   function handleStreamComplete(message) {
     isAnalyzing = false;
     analysisError = null;
-
-    console.log(`[Woffle] Analysis complete: ${segments.length} segments (cache: ${message.fromCache})`);
-
-    // DIAGNOSTIC: dump every segment's key fields so we can verify
-    // confidence values, categories, and labels are arriving correctly.
-    // Remove this log once the data shape is confirmed.
-    console.log('[Woffle] SEGMENT DATA:', JSON.stringify(
-      segments.map(s => ({
-        start: s.start,
-        end: s.end,
-        confidence: s.woffle_confidence || s.waffle_confidence,
-        category: s.category,
-        label: s.label
-      })), null, 2
-    ));
 
     // Normalize legacy segments
     for (const seg of segments) {
@@ -565,7 +535,6 @@
       const x = Math.min(Math.max(0, e.clientX - rect.left), rect.width);
       const targetTime = (x / rect.width) * vid.duration;
       vid.currentTime = targetTime;
-      console.log(`[Woffle] Timeline seek: ${formatTime(targetTime)}`);
     });
 
     // Create a segment div for each classified chunk.
@@ -605,7 +574,6 @@
           if (!vid) return;
           const end = parseFloat(segEl.dataset.end);
           vid.currentTime = end;
-          console.log(`[Woffle] CLICK SKIP: -> ${formatTime(end)}`);
         });
       }
 
@@ -648,7 +616,7 @@
     hideTooltip();
 
     const segEl = e.currentTarget;
-    const type = segEl.dataset.type.toUpperCase();
+    const type = segEl.dataset.type === 'waffle' ? 'WOFFLE' : 'SUBSTANCE';
     const start = parseFloat(segEl.dataset.start);
     const end = parseFloat(segEl.dataset.end);
     const text = segEl.dataset.text || '';
@@ -781,7 +749,6 @@
       if (isWoffle &&
           currentTime >= segment.start &&
           currentTime < segment.end - 0.5) {
-        console.log(`[Woffle] AUTO SKIP: ${formatTime(segment.start)} -> ${formatTime(segment.end)}`);
         video.currentTime = segment.end;
 
         wafflesZapped++;
@@ -838,11 +805,9 @@
       );
       if (event.shiftKey && targetIsWoffle) {
         bypassAutoSkipUntil = targetSegment.end;
-        console.log(`[Woffle] Auto-skip bypass armed until ${formatTime(targetSegment.end)} (manual review)`);
       } else {
         bypassAutoSkipUntil = 0;
       }
-      console.log(`[Woffle] Section jump (${event.shiftKey ? 'prev' : 'next'}): ${formatTime(targetTime)}`);
     };
 
     window.addEventListener('keydown', keydownHandler, true);
@@ -1005,7 +970,6 @@
     }
 
     transcriptLines.sort((a, b) => a.start - b.start);
-    console.log(`[Woffle] Transcript lines: ${transcriptLines.length} (${latestTranscriptData ? 'raw' : 'segments'})`);
   }
 
   // Check whether a transcript line falls within a woffle segment.
@@ -1110,7 +1074,6 @@
         const vid = document.querySelector('video');
         if (vid) {
           vid.currentTime = line.start;
-          console.log(`[Woffle] Transcript seek: ${formatTime(line.start)}`);
         }
       });
 
@@ -1208,14 +1171,6 @@
   function applyIntensity(intensity) {
     currentIntensity = intensity;
     woffleThreshold = getWoffleThreshold(intensity);
-    console.log(`[Woffle] Intensity → ${intensity.toUpperCase()} (threshold: ${woffleThreshold})`);
-
-    // DIAGNOSTIC: show how many segments clear the current threshold.
-    // Remove once confidence filtering is confirmed working.
-    const above = segments.filter(s =>
-      (s.woffle_confidence || s.waffle_confidence || 0) >= woffleThreshold
-    ).length;
-    console.log(`[Woffle] Intensity ${intensity}: ${above} of ${segments.length} segments are woffle at threshold ${woffleThreshold}`);
 
     if (segments.length > 0) {
       renderTimeline();

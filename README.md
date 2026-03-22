@@ -1,62 +1,99 @@
-# 🧇 Waffle Skipper
+# 🧇 WOFFLE
 
-**Skip the waffle in YouTube videos.**
+**Skip the fluff. Get the stuff.**
 
-A Chrome extension that uses AI to detect filler segments (sponsors, "like and subscribe" pleas, tangents, rambling) in YouTube videos and lets you skip them automatically.
+> "You already skip ads. Now skip the woffle."
+
+A Chrome extension that uses AI to detect filler segments in YouTube videos — sponsors, tangents, rambling intros, co-host reactions, repetition — and skips them automatically while you watch.
+
+---
 
 ## How It Works
 
 1. Navigate to any YouTube video with captions
-2. Waffle Skipper grabs the transcript and sends it to Claude AI for analysis
-3. Each segment is classified as **SUBSTANCE** (the good stuff) or **WAFFLE** (the filler)
-4. A colour-coded timeline appears below the video: green = substance, orange = waffle
-5. Waffle segments are skipped automatically while the video plays
+2. Click the 🧇 **SCAN** button below the video
+3. Woffle grabs the transcript and sends it to Claude AI for classification
+4. Each segment is scored 0–100 for "woffle confidence"
+5. A colour-coded timeline appears below the player: **green = substance**, **orange = woffle**
+6. Woffle segments are skipped automatically — or you can skip manually by clicking them
+
+---
+
+## Features
+
+- **Auto-skip** — woffle segments skipped in real time as you watch
+- **3 intensity levels** — Light (trim the fat), Medium (get to the point), Heavy (just the substance)
+- **Transcript panel** — full synced transcript with woffle highlighted and struck through
+- **Keyboard shortcuts** — `Tab` jumps to next substance section, `Shift+Tab` jumps back
+- **Cached results** — analysed videos are cached locally; re-watching is instant and free
+- **Two-pass analysis** — Haiku does a fast intro scan (~1s), Sonnet streams the full analysis
+
+---
 
 ## Installation
 
 1. Clone or download this repo
-2. Open Chrome and go to `chrome://extensions/`
-3. Enable **Developer mode** (toggle in top-right)
-4. Click **Load unpacked** and select the `WOFFLE` folder
-5. Click the Waffle Skipper icon in your toolbar → Settings → enter your Anthropic API key
+2. Open Chrome → `chrome://extensions/`
+3. Enable **Developer mode** (toggle, top right)
+4. Click **Load unpacked** → select the `WOFFLE` folder
+5. Click the Woffle icon → **OPTIONS** → enter your Anthropic API key
+
+---
 
 ## Getting an API Key
 
 1. Go to [console.anthropic.com](https://console.anthropic.com/)
-2. Create an account and add credits
+2. Create an account — new accounts get **$5 free credit**
 3. Generate an API key (starts with `sk-ant-`)
-4. Paste it into the Waffle Skipper settings page
+4. Paste it into the Woffle options page
 
-## Claude Code Note
+---
 
-- This extension needs an **Anthropic API key** from `console.anthropic.com`.
-- A Claude Code login/session by itself is not enough unless you also have API billing enabled.
-- If analysis fails, open `chrome://extensions`, click **Service worker** under Waffle Skipper, and check logs for API errors.
+## Cost
 
-## Controls
+Each video analysis costs approximately **3–5 cents** (Haiku quick scan + Sonnet full analysis).
+Cache hits are free — if another user already analysed the same video at the same intensity, you get instant results.
 
-- Auto-skip is always on.
-- Click anywhere on the waffle timeline to jump to that point.
-- Press `Tab` to jump to the next substance (green) section.
-- Press `Shift+Tab` to jump to the previous section (green or waffle). If you jump into waffle, auto-skip is temporarily bypassed for that section so you can review it.
+---
+
+## Pricing
+
+| Tier | Price | Daily scans |
+|---|---|---|
+| **Free** | $0 | 3 scans/day |
+| **Woffle Pro** | $14.99 one-time | Unlimited |
+
+Pro license keys use the format `WOFFLE-XXXX-XXXX-XXXX-XXXX`. Enter yours in the Options page.
+
+---
+
+## Privacy
+
+Woffle has no servers and no accounts. Your API key and cached results stay in your browser.
+Transcripts are sent directly from your browser to Anthropic using your own API key.
+We never see your data.
+
+→ [Full privacy policy](privacy.html)
+
+---
 
 ## Tech Stack
 
 - Chrome Manifest V3
-- Vanilla JavaScript + CSS (no frameworks)
-- Claude API (claude-haiku-4-5) for transcript classification
-- "Press Start 2P" retro pixel font
+- Vanilla JS + CSS (no frameworks)
+- Claude Haiku 4.5 (quick intro scan) + Claude Sonnet 4.5 (full streaming analysis)
+- "Press Start 2P" + "VT323" retro pixel fonts
+
+---
 
 ## Limitations
 
 - Requires videos to have captions (auto-generated or manual)
-- Currently only analyses English captions
-- Classification quality depends on the AI model — it's good but not perfect
-- Uses your Anthropic API credits (Haiku is very cheap: ~$0.001 per video)
+- English captions only
+- Classification quality depends on the AI — it's good, not perfect
 
-## Privacy
+---
 
-- Your API key is stored locally in Chrome's sync storage
-- Video analyses are cached locally to avoid re-processing
-- No data is sent anywhere except to the Anthropic API for classification
-- No analytics, tracking, or telemetry
+## License
+
+MIT

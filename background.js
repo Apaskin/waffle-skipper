@@ -150,7 +150,6 @@ const LICENSE_REVALIDATE_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 // ============================================================
 
 chrome.runtime.onInstalled.addListener((details) => {
-  console.log('[Woffle] Extension installed/updated, reason:', details.reason);
   if (details.reason === 'install') {
     chrome.runtime.openOptionsPage();
   }
@@ -394,13 +393,12 @@ async function fetchTimedtextViaInnertubeFallback(videoId, pageHtml) {
 }
 
 async function fetchTranscript(videoId, captionUrl) {
-  console.log(`[Woffle] Fetching transcript for ${videoId}`);
   let foundNonEnglishOnly = false;
   if (captionUrl) {
     try {
       const directData = await fetchTimedtextFromTrack({ baseUrl: captionUrl, languageCode: 'page' });
       if (directData?.events?.length) return directData;
-    } catch (err) { console.warn('[Woffle] Caption URL fetch failed:', err.message); }
+    } catch (err) { /* caption URL fetch failed — fall through to watch page scrape */ }
   }
   let pageHtml = '';
   try {
@@ -547,7 +545,6 @@ function chunkTranscript(timedTextData) {
   }
   flushChunk();
 
-  console.log(`[Woffle] Built ${chunks.length} transcript chunks`);
   return chunks;
 }
 
@@ -754,7 +751,6 @@ async function fullAnalysis(chunks, apiKey, videoTitle, tabId, videoId) {
             // Emit topic as soon as we find it
             if (parseResult.topic && !topicEmitted) {
               topicEmitted = true;
-              console.log(`[Woffle] Topic: ${parseResult.topic}`);
             }
 
             // Emit any newly parsed segments to content script
@@ -1059,7 +1055,6 @@ async function handleAnalyzeVideoStreaming(videoId, captionUrl, transcriptData, 
   // 1. Local cache check
   const localCached = await getLocalCache(videoId);
   if (localCached) {
-    console.log(`[Woffle] Local cache hit for ${videoId}`);
     for (const seg of localCached) {
       sendToTab(tabId, { type: 'WOFFLE_SEGMENT', segment: seg });
     }
@@ -1072,7 +1067,6 @@ async function handleAnalyzeVideoStreaming(videoId, captionUrl, transcriptData, 
   if (!licensed) {
     const usage = await getDailyUsage();
     if (usage.count >= FREE_DAILY_LIMIT) {
-      console.log(`[Woffle] Daily limit reached (${usage.count}/${FREE_DAILY_LIMIT})`);
       sendToTab(tabId, { type: 'WOFFLE_ERROR', error: 'DAILY_LIMIT_REACHED' });
       return;
     }
@@ -1088,7 +1082,6 @@ async function handleAnalyzeVideoStreaming(videoId, captionUrl, transcriptData, 
   // 4. Fetch transcript if not provided
   let timedTextData;
   if (transcriptData && transcriptData.events && transcriptData.events.length > 0) {
-    console.log(`[Woffle] Using pre-fetched transcript: ${transcriptData.events.length} events`);
     timedTextData = transcriptData;
   } else {
     try {
@@ -1117,13 +1110,11 @@ async function handleAnalyzeVideoStreaming(videoId, captionUrl, transcriptData, 
   // 7. Fire BOTH requests simultaneously
   //    - Quick scan (Haiku): first 90s → instant intro skip
   //    - Full scan (Sonnet): entire transcript → streaming segments
-  console.log(`[Woffle] Starting two-pass analysis for ${videoId}`);
 
   // Quick scan — fire and forget, forward result as soon as it arrives
   const quickPromise = quickIntroScan(chunks, apiKey, videoTitle)
     .then(result => {
       if (result.intro_ends_at > 0) {
-        console.log(`[Woffle] Quick scan: intro ends at ${result.intro_ends_at}s`);
         sendToTab(tabId, {
           type: 'WOFFLE_QUICK_RESULT',
           introEndsAt: result.intro_ends_at,
@@ -1132,9 +1123,8 @@ async function handleAnalyzeVideoStreaming(videoId, captionUrl, transcriptData, 
         });
       }
     })
-    .catch(err => {
+    .catch(() => {
       // Quick scan failure is non-critical — full scan will handle everything
-      console.warn('[Woffle] Quick scan failed (non-critical):', err.message);
     });
 
   // Full scan — stream response and forward each segment to content script
@@ -1153,8 +1143,7 @@ async function handleAnalyzeVideoStreaming(videoId, captionUrl, transcriptData, 
 // ============================================================
 
 function sendToTab(tabId, message) {
-  chrome.tabs.sendMessage(tabId, message).catch((err) => {
-    // Tab may have navigated away — non-critical
-    console.warn('[Woffle] Could not send to tab:', err.message);
+  chrome.tabs.sendMessage(tabId, message).catch(() => {
+    // Tab may have navigated away — non-critical, ignore
   });
 }

@@ -5,106 +5,243 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Woffle — Privacy Policy</title>
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323:wght@400&display=swap');
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
     body {
-      font-family: Georgia, serif;
-      max-width: 680px;
-      margin: 40px auto;
-      padding: 0 20px;
-      color: #222;
+      font-family: 'VT323', monospace;
+      font-size: 18px;
+      background: #0a0e26;
+      color: #c8d0e8;
       line-height: 1.7;
+      padding: 40px 20px 60px;
     }
-    h1 { font-size: 1.6em; margin-bottom: 4px; }
-    h2 { font-size: 1.1em; margin-top: 2em; }
-    .meta { color: #666; font-size: 0.9em; margin-bottom: 2em; }
-    a { color: #0066cc; }
+
+    .container {
+      max-width: 700px;
+      margin: 0 auto;
+      border: 2px solid #e2b714;
+      border-radius: 8px;
+      padding: 36px 40px;
+      background: #0f1330;
+      position: relative;
+      box-shadow: 0 0 24px rgba(226, 183, 20, 0.15), inset 0 0 60px rgba(0,0,0,0.3);
+    }
+
+    /* CRT scanlines */
+    .container::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg, transparent, transparent 2px,
+        rgba(0,0,0,0.06) 2px, rgba(0,0,0,0.06) 4px
+      );
+      pointer-events: none;
+      border-radius: 6px;
+      z-index: 1;
+    }
+
+    .content { position: relative; z-index: 2; }
+
+    .header {
+      text-align: center;
+      margin-bottom: 32px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid rgba(226, 183, 20, 0.3);
+    }
+
+    .mascot {
+      font-size: 48px;
+      display: block;
+      margin-bottom: 12px;
+    }
+
+    h1 {
+      font-family: 'Press Start 2P', monospace;
+      font-size: 16px;
+      color: #e2b714;
+      text-shadow: 0 0 12px rgba(226, 183, 20, 0.5);
+      letter-spacing: 1px;
+      margin-bottom: 8px;
+      line-height: 1.4;
+    }
+
+    .meta {
+      font-family: 'VT323', monospace;
+      font-size: 15px;
+      color: #5a6988;
+    }
+
+    h2 {
+      font-family: 'Press Start 2P', monospace;
+      font-size: 9px;
+      color: #00d4ff;
+      text-shadow: 0 0 8px rgba(0, 212, 255, 0.3);
+      letter-spacing: 1px;
+      margin-top: 28px;
+      margin-bottom: 10px;
+      text-transform: uppercase;
+    }
+
+    p { margin-bottom: 10px; }
+
+    ul {
+      margin: 8px 0 10px 20px;
+    }
+
+    li { margin-bottom: 6px; }
+
+    strong {
+      color: #e2b714;
+      font-style: normal;
+    }
+
+    .highlight {
+      background: rgba(0, 255, 65, 0.07);
+      border-left: 3px solid #00ff41;
+      padding: 10px 14px;
+      margin: 14px 0;
+      border-radius: 0 4px 4px 0;
+    }
+
+    .highlight strong { color: #00ff41; }
+
+    code {
+      font-family: 'VT323', monospace;
+      font-size: 16px;
+      color: #00ff41;
+      background: rgba(0, 255, 65, 0.08);
+      padding: 1px 5px;
+      border-radius: 3px;
+    }
+
+    a {
+      color: #00d4ff;
+      text-decoration: none;
+    }
+
+    a:hover { text-decoration: underline; }
+
+    .footer {
+      margin-top: 36px;
+      padding-top: 16px;
+      border-top: 1px solid rgba(226, 183, 20, 0.2);
+      text-align: center;
+      font-size: 14px;
+      color: #5a6988;
+    }
+
+    .footer a { color: #e2b714; }
   </style>
 </head>
 <body>
-  <h1>Woffle — Privacy Policy</h1>
-  <p class="meta">Last updated: March 2026 &nbsp;|&nbsp; Version 0.1.0</p>
+  <div class="container">
+    <div class="content">
 
-  <h2>What this extension does</h2>
-  <p>
-    Woffle is a Chrome extension that uses AI to classify segments of YouTube
-    video transcripts as "substance" or "woffle" (filler), then automatically skips
-    the filler segments while you watch.
-  </p>
+      <div class="header">
+        <span class="mascot">🧇</span>
+        <h1>WOFFLE — PRIVACY POLICY</h1>
+        <p class="meta">Last updated: March 2026 &nbsp;|&nbsp; Version 0.5.0</p>
+      </div>
 
-  <h2>Data we collect</h2>
-  <p>
-    <strong>We collect nothing.</strong> Woffle has no servers, no accounts,
-    no analytics, and no telemetry. All processing happens locally in your browser.
-  </p>
+      <h2>What Woffle does</h2>
+      <p>
+        Woffle is a Chrome extension that detects filler content ("woffle") in YouTube videos
+        and lets you skip it. It captures the video's transcript, sends it to the
+        Anthropic Claude API using <strong>your own API key</strong>, and displays the results
+        as a colour-coded timeline overlay.
+      </p>
 
-  <h2>Data stored on your device</h2>
-  <p>The extension stores the following data <em>locally in your browser only</em>:</p>
-  <ul>
-    <li>
-      <strong>Your Anthropic API key</strong> — saved to Chrome's sync storage
-      (<code>chrome.storage.sync</code>) so it persists across Chrome profiles if
-      you use Chrome Sync. It is never transmitted anywhere except to the Anthropic
-      API endpoint when analysing a video.
-    </li>
-    <li>
-      <strong>Video analysis cache</strong> — results of transcript classifications
-      are cached locally in <code>chrome.storage.local</code> to avoid re-processing
-      videos you've already watched. Cache entries expire after 30 days and are
-      automatically cleaned up.
-    </li>
-  </ul>
+      <div class="highlight">
+        <strong>We never see your data.</strong> Woffle has no servers, no accounts, and no
+        telemetry. Everything goes directly from your browser to Anthropic — under your account,
+        using your key, billed to you.
+      </div>
 
-  <h2>Data sent to third parties</h2>
-  <p>
-    When you navigate to a YouTube video, the extension fetches the video's English
-    transcript (captions) and sends it to the
-    <a href="https://www.anthropic.com" target="_blank">Anthropic API</a>
-    for classification. Specifically:
-  </p>
-  <ul>
-    <li>
-      The transcript text (not your identity, not the video URL, not any personal
-      information) is sent to <code>https://api.anthropic.com/v1/messages</code>
-      using your own API key.
-    </li>
-    <li>
-      Anthropic's data usage policy applies to this request. See
-      <a href="https://www.anthropic.com/privacy" target="_blank">anthropic.com/privacy</a>.
-    </li>
-    <li>
-      No other data is sent to Anthropic or any other party.
-    </li>
-  </ul>
+      <h2>What Woffle stores locally</h2>
+      <p>The following data is stored <em>in your browser only</em> — never transmitted to us:</p>
+      <ul>
+        <li>
+          <strong>Your Anthropic API key</strong> — saved to <code>chrome.storage.sync</code>
+          so it persists across your Chrome profiles if you use Chrome Sync. It is only ever
+          sent to <code>https://api.anthropic.com</code> when analysing a video.
+        </li>
+        <li>
+          <strong>Your Woffle Pro license key</strong> (if purchased) — saved to
+          <code>chrome.storage.sync</code>. Never transmitted anywhere.
+        </li>
+        <li>
+          <strong>Cached video analyses</strong> — segment classifications are cached in
+          <code>chrome.storage.local</code> to avoid re-processing videos you've already watched.
+          Cache entries expire after 30 days.
+        </li>
+        <li>
+          <strong>Your settings</strong> — auto-skip toggle, intensity level (light/medium/heavy),
+          timeline visibility preference. Stored in <code>chrome.storage.sync</code>.
+        </li>
+      </ul>
 
-  <h2>YouTube interactions</h2>
-  <p>
-    The extension fetches YouTube video transcripts using YouTube's publicly available
-    caption API. It does not log in to YouTube on your behalf, does not interact with
-    your YouTube account, and does not store or transmit watch history.
-  </p>
+      <h2>What Woffle does NOT do</h2>
+      <ul>
+        <li>No personal data collection of any kind</li>
+        <li>No tracking of your viewing habits or watch history</li>
+        <li>No transcript storage — transcripts are sent to Anthropic and discarded</li>
+        <li>No analytics, telemetry, or crash reporting</li>
+        <li>No data sharing with any third party except as described below</li>
+      </ul>
 
-  <h2>Permissions used</h2>
-  <ul>
-    <li><strong>storage</strong> — to save your API key and cache analysis results locally.</li>
-    <li><strong>youtube.com host permission</strong> — to fetch video transcripts.</li>
-    <li><strong>api.anthropic.com host permission</strong> — to call the Claude AI API for classification.</li>
-  </ul>
+      <h2>Third-party services</h2>
+      <p>
+        Woffle makes API calls to one external service:
+      </p>
+      <ul>
+        <li>
+          <strong>Anthropic</strong> (<code>api.anthropic.com</code>) — receives the video
+          transcript text for AI classification. This call is made using <em>your</em> API key,
+          under <em>your</em> Anthropic account. Anthropic's own privacy policy applies:
+          <a href="https://www.anthropic.com/privacy" target="_blank">anthropic.com/privacy</a>.
+          No identifying information (name, email, YouTube account) is included in the request —
+          only the transcript text.
+        </li>
+      </ul>
 
-  <h2>Children's privacy</h2>
-  <p>
-    This extension is not directed at children under 13. We do not knowingly collect
-    any personal information from anyone.
-  </p>
+      <h2>YouTube interactions</h2>
+      <p>
+        Woffle fetches video transcripts using YouTube's publicly available caption API.
+        It does not log in to YouTube on your behalf, does not interact with your YouTube
+        account, and does not store or transmit watch history.
+      </p>
 
-  <h2>Changes to this policy</h2>
-  <p>
-    If we change what data is collected or how it is used, we will update this page
-    and increment the version number above.
-  </p>
+      <h2>Permissions used</h2>
+      <ul>
+        <li><strong>storage</strong> — to save your API key, license key, settings, and
+          cached analysis results locally in your browser.</li>
+        <li><strong>youtube.com host permission</strong> — to read video transcripts from
+          YouTube's caption API and inject the timeline overlay into the YouTube page.</li>
+        <li><strong>api.anthropic.com host permission</strong> — to call the Claude AI API
+          for transcript classification using your API key.</li>
+      </ul>
 
-  <h2>Contact</h2>
-  <p>
-    For questions about this privacy policy, open an issue on the
-    <a href="https://github.com/Apaskin/waffle-skipper" target="_blank">GitHub repository</a>.
-  </p>
+      <h2>Children's privacy</h2>
+      <p>
+        Woffle is not directed at children under 13. We do not knowingly collect
+        any personal information from anyone.
+      </p>
+
+      <h2>Changes to this policy</h2>
+      <p>
+        If we change what data is collected or how it is used, we will update this page
+        and increment the version number above.
+      </p>
+
+      <div class="footer">
+        <p>Questions? Contact: <a href="mailto:andrewpaskin28@gmail.com">andrewpaskin28@gmail.com</a></p>
+        <p style="margin-top: 8px;">— INSERT COIN TO CONTINUE —</p>
+      </div>
+
+    </div>
+  </div>
 </body>
 </html>
