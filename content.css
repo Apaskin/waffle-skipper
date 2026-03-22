@@ -74,7 +74,13 @@
 }
 
 /* Timeline is now injected outside #movie_player entirely (between player
-   and title), so no always-visible overrides or pointer-events hacks needed. */
+   and title), so no always-visible overrides or pointer-events hacks needed.
+   In fullscreen YouTube covers the entire viewport — hide the timeline unless
+   the user has "keep timeline visible" toggled on (handled by JS). */
+.ytp-fullscreen ~ * #waffle-timeline,
+body.ytp-fullscreen #waffle-timeline {
+  display: none !important;
+}
 
 /* Keyboard nav flash — brief highlight on the segment the user jumped to */
 .waffle-segment.nav-flash {
@@ -318,7 +324,7 @@
   border: 2px solid var(--ws-gold);
   border-radius: 6px;
   /* Retro deep-blue background matching popup panels */
-  background: #0d2850;
+  background: #0f3460;
   margin-bottom: 8px;
   position: relative;
   transition: max-height 0.3s ease-out, opacity 0.3s ease-out;
@@ -449,23 +455,24 @@
   content: '▶';
 }
 
-/* Bug 3: timestamps now cyan, not dim grey */
+/* Bug 3: timestamps now cyan, not dim grey. VT323 12px — readable without
+   dominating the transcript text. Width bumped to 44px to fit at larger size. */
 .woffle-transcript-time {
   flex-shrink: 0;
-  width: 38px;
-  font-family: 'Press Start 2P', monospace;
-  font-size: 7px;
+  width: 44px;
+  font-family: 'VT323', monospace;
+  font-size: 12px;
   color: var(--ws-cyan);
   line-height: 1.5;
-  padding-top: 2px;
+  padding-top: 1px;
 }
 
-/* Bug 3: text clearly white, larger font, comfortable line height */
+/* Substance text: light white, VT323 14px, generous line height for readability */
 .woffle-transcript-text {
   font-family: 'VT323', monospace;
-  font-size: 15px;
-  line-height: 1.5;
-  color: #f0f0f0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #e8e8e8;
   word-break: break-word;
 }
 

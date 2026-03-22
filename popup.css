@@ -185,11 +185,15 @@ body {
 }
 
 .video-title {
-  font-size: 8px;
-  line-height: 1.5;
+  font-size: 10px;
+  line-height: 1.4;
   color: var(--cyan);
   text-shadow: 0 0 6px var(--cyan-glow);
-  word-break: break-word;
+  /* Clamp to 2 lines — prevents long titles inflating popup height */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .analysis-status {
@@ -304,7 +308,7 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  padding: 5px 4px 4px;
+  padding: 6px 4px;
   border-radius: 6px;
   border: 2px solid var(--line);
   background: rgba(10, 14, 32, 0.8);
@@ -321,13 +325,13 @@ body {
 }
 
 .intensity-name {
-  font-size: 6px;
+  font-size: 7px;
   letter-spacing: 0.5px;
 }
 
 .intensity-hint {
   font-family: 'VT323', monospace;
-  font-size: 11px;
+  font-size: 10px;
   color: var(--dim);
   opacity: 0.6;
 }
@@ -379,15 +383,18 @@ body {
 }
 
 /* ============================================================
-   Intensity Tooltips — hover descriptions for each level
+   Intensity Tooltips — hover descriptions for each level.
+   Positioned BELOW buttons so they never overflow the top of
+   the popup. Arrow points UP toward the button.
    ============================================================ */
 .intensity-tooltip {
   display: none;
   position: absolute;
-  bottom: calc(100% + 10px);
+  top: calc(100% + 8px);  /* below the button */
+  bottom: auto;
   left: 50%;
   transform: translateX(-50%);
-  width: 250px;
+  width: 220px;
   padding: 10px 12px;
   border-radius: 6px;
   border: 1px solid var(--gold);
@@ -424,22 +431,22 @@ body {
 .tt-keep { color: var(--green); }
 .tt-best { color: var(--cyan); font-style: italic; }
 
-/* Arrow pointing down to the button */
+/* Arrow pointing UP toward the button above the tooltip */
 .intensity-tooltip-arrow {
   position: absolute;
-  bottom: -6px;
+  top: -6px;
+  bottom: auto;
   left: 50%;
   transform: translateX(-50%);
   width: 0;
   height: 0;
   border-left: 6px solid transparent;
   border-right: 6px solid transparent;
-  border-top: 6px solid var(--gold);
+  border-bottom: 6px solid var(--gold);
+  border-top: none;
 }
 
-/* LIGHT: anchor tooltip to the button's left edge so it doesn't
-   overflow the left side of the popup. Arrow shifted right to still
-   point at the button's centre. */
+/* LIGHT: flush to left edge — 220px tooltip from button's left won't overflow right */
 .intensity-btn[data-intensity="light"] .intensity-tooltip {
   left: 0;
   transform: none;
@@ -449,9 +456,7 @@ body {
   transform: none;
 }
 
-/* HEAVY: anchor tooltip to the button's right edge so it doesn't
-   overflow the right side of the popup. Arrow shifted left to still
-   point at the button's centre. */
+/* HEAVY: flush to right edge — 220px tooltip from button's right won't overflow left */
 .intensity-btn[data-intensity="heavy"] .intensity-tooltip {
   left: auto;
   right: 0;
@@ -513,7 +518,7 @@ body {
 
 .checkbox-label {
   font-family: 'Press Start 2P', monospace;
-  font-size: 6px;
+  font-size: 5px;
   color: var(--cyan);
   letter-spacing: 0.5px;
 }
@@ -557,7 +562,7 @@ body {
 
 .score-value {
   font-family: 'VT323', monospace;
-  font-size: 24px;
+  font-size: 22px;
   line-height: 1;
 }
 
@@ -586,7 +591,7 @@ body {
 .ratio-text-orange { color: var(--orange); }
 
 .ratio-bar {
-  height: 8px;
+  height: 6px;
   border-radius: 4px;
   overflow: hidden;
   display: flex;
@@ -645,7 +650,7 @@ body {
 }
 
 .footer-tagline {
-  font-size: 6px;
+  font-size: 5px;
   letter-spacing: 2px;
   color: rgba(90, 105, 136, 0.6);
   animation: coinBlink 3s ease-in-out infinite;
@@ -660,8 +665,8 @@ body {
    Usage indicator panel
    ============================================================ */
 .usage-panel {
-  padding: 10px 14px;
-  gap: 6px;
+  padding: 5px 10px;
+  gap: 4px;
 }
 
 /* Free tier counter */
